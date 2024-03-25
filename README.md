@@ -1,0 +1,2 @@
+# CringeCast
+Simple CLI podcastmanager

@@ -8,7 +8,6 @@ pkgs.mkShell {
     pkgs.cargo
     pkgs.rustup
     pkgs.rust-analyzer
-    # other dependencies...
   ];
 }
 

@@ -1,225 +1,165 @@
-use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::config::{CombinedConfig, GlobalConfig, PodcastConfig};
+
 use std::collections::{HashMap, HashSet};
 
-fn main() {
-    let global_config = Arc::new(GlobalConfig::load());
-    let podcasts = Podcast::load_all();
+use anyhow::Result;
 
-    let mut handles = vec![];
+mod config;
+
+fn main() -> Result<()> {
+    let global_config = Arc::new(GlobalConfig::load()?);
+    let podcasts = Podcast::load_all(global_config)?;
+
     for podcast in podcasts {
-        let config = Arc::clone(&global_config);
-
-        handles.push(std::thread::spawn(move || {
-            podcast.sync(config);
-        }));
+        podcast.sync()?;
     }
 
-    for handle in handles {
-        handle.join().unwrap();
-    }
+    Ok(())
 }
 
-fn home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap())
+fn channel_path() -> Result<PathBuf> {
+    Ok(dirs::config_dir()
+        .ok_or(anyhow::Error::msg("no config dir found"))?
+        .join("cringecast")
+        .join("channels.toml"))
 }
 
-fn config_dir() -> PathBuf {
-    let p = home().join(".config").join("cringecast");
-    std::fs::create_dir_all(&p).unwrap();
-    p
-}
-
-fn channel_path() -> PathBuf {
-    config_dir().join("channels.toml")
-}
-
-#[derive(Clone)]
-struct CombinedConfig<'a> {
-    global: Arc<GlobalConfig>,
-    specific: &'a PodcastConfig,
-}
-
-impl<'a> CombinedConfig<'a> {
-    fn new(global: Arc<GlobalConfig>, specific: &'a PodcastConfig) -> Self {
-        Self { global, specific }
-    }
-
-    fn max_age(&self) -> Option<u32> {
-        self.specific.max_age.or(self.global.max_age)
-    }
-
-    fn base_path(&self) -> PathBuf {
-        PathBuf::from(self.specific.path.as_ref().unwrap_or(&self.global.path))
-    }
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct PodcastConfig {
+struct Episode {
+    title: String,
     url: String,
-    max_age: Option<u32>,
-    path: Option<String>,
+    guid: String,
+    published: i64,
 }
-
-#[derive(Serialize, Deserialize, Debug)]
-struct GlobalConfig {
-    max_age: Option<u32>,
-    path: String,
-}
-
-impl Default for GlobalConfig {
-    fn default() -> Self {
-        Self {
-            max_age: Some(120),
-            path: home().join("cringecast").to_string_lossy().to_string(),
-        }
-    }
-}
-
-impl GlobalConfig {
-    fn load() -> Self {
-        let p = config_dir().join("config.toml");
-
-        if !p.exists() {
-            let default = Self::default();
-            let s = toml::to_string_pretty(&default).unwrap();
-            let mut f = std::fs::File::create(&p).unwrap();
-            f.write_all(s.as_bytes()).unwrap();
-        }
-
-        let str = std::fs::read_to_string(p).unwrap();
-        toml::from_str(&str).unwrap()
-    }
-}
-
-struct Episode(rss::Item);
 
 impl Episode {
-    fn title(&self) -> &str {
-        self.0.title().unwrap()
+    fn new(item: rss::Item) -> Result<Self> {
+        Ok(Self {
+            title: item
+                .title()
+                .ok_or(anyhow::Error::msg("title not found"))?
+                .to_owned(),
+            url: item
+                .enclosure()
+                .ok_or(anyhow::Error::msg("enclosure not found"))?
+                .url()
+                .to_owned(),
+            guid: item
+                .guid()
+                .ok_or(anyhow::Error::msg("guid not found"))?
+                .value()
+                .to_string(),
+            published: chrono::DateTime::parse_from_rfc2822(
+                item.pub_date()
+                    .ok_or(anyhow::Error::msg("published date not found"))?,
+            )?
+            .timestamp(),
+        })
     }
 
-    fn url(&self) -> &str {
-        self.0.enclosure().unwrap().url()
-    }
+    fn download(&self, folder: &Path) -> Result<()> {
+        let mut reader = ureq::get(&self.url).call()?.into_reader();
 
-    fn guid(&self) -> &str {
-        self.0.guid().unwrap().value()
-    }
+        let mut file = {
+            let file_name = self.title.replace(" ", "_") + ".mp3";
+            let file_path = folder.join(file_name);
+            std::fs::File::create(&file_path)?
+        };
 
-    fn download(&self, folder: &Path) {
-        let url = self.url();
-        let title = self.title();
-        let file_name = title.replace(" ", "_") + ".mp3";
-        let destination = folder.join(file_name);
-
-        let response = ureq::get(&url).call().unwrap();
-        let mut reader = response.into_reader();
-        let mut file = std::fs::File::create(destination).unwrap();
-        std::io::copy(&mut reader, &mut file).unwrap();
-    }
-
-    fn should_download(&self, config: &CombinedConfig, downloaded: &DownloadedEpisodes) -> bool {
-        if downloaded.contains_episode(&self.0) {
-            return false;
-        }
-
-        if let Some(max_age) = config.max_age() {
-            let pub_date = self.0.pub_date().unwrap();
-            let published_unix = chrono::DateTime::parse_from_rfc2822(pub_date)
-                .unwrap()
-                .timestamp();
-
-            let current_unix = chrono::Utc::now().timestamp();
-
-            if (current_unix - published_unix) > max_age as i64 * 86400 {
-                return false;
-            }
-        }
-
-        true
+        std::io::copy(&mut reader, &mut file)?;
+        Ok(())
     }
 }
 
 struct Podcast {
     name: String,
-    config: PodcastConfig,
+    config: CombinedConfig,
+    downloaded: DownloadedEpisodes,
 }
 
 impl Podcast {
-    fn load_all() -> Vec<Self> {
-        let path = channel_path();
-        let config_str = std::fs::read_to_string(path).expect("Failed to read config file");
+    fn load_all(global_config: Arc<GlobalConfig>) -> Result<Vec<Self>> {
+        let configs: HashMap<String, PodcastConfig> = {
+            let config_str = std::fs::read_to_string(channel_path()?)?;
+            toml::from_str(&config_str)?
+        };
 
         let mut podcasts = vec![];
-
-        let configs: HashMap<String, PodcastConfig> = toml::from_str(&config_str).unwrap();
-
         for (name, config) in configs {
-            podcasts.push(Self { name, config });
+            let config = CombinedConfig::new(Arc::clone(&global_config), config);
+            let downloaded = DownloadedEpisodes::load(&name, &config)?;
+
+            podcasts.push(Self {
+                name,
+                config,
+                downloaded,
+            });
         }
 
-        podcasts
+        Ok(podcasts)
     }
 
-    fn combined_config(&self, global_config: Arc<GlobalConfig>) -> CombinedConfig {
-        CombinedConfig::new(global_config, &self.config)
+    fn load_episodes(&self) -> Result<Vec<Episode>> {
+        let data = {
+            let mut reader = ureq::agent().get(&self.config.url()).call()?.into_reader();
+            let mut data = vec![];
+            reader.read_to_end(&mut data)?;
+            data
+        };
+
+        rss::Channel::read_from(data.as_slice())?
+            .into_items()
+            .into_iter()
+            .map(Episode::new)
+            .collect()
     }
 
-    fn load_episodes(&self) -> Vec<Episode> {
-        let agent = ureq::builder().build();
-
-        let mut reader = agent.get(&self.config.url).call().unwrap().into_reader();
-        let mut data = vec![];
-
-        reader.read_to_end(&mut data).unwrap();
-        let channel = rss::Channel::read_from(&data[..]).unwrap();
-        let items = channel.into_items();
-        let mut episodes = vec![];
-
-        for item in items {
-            episodes.push(Episode(item));
-        }
-
-        episodes
+    fn download_folder(&self) -> Result<PathBuf> {
+        let destination_folder = self.config.base_path().join(&self.name);
+        std::fs::create_dir_all(&destination_folder)?;
+        Ok(destination_folder)
     }
 
-    fn download_folder(&self, config: &CombinedConfig) -> PathBuf {
-        let destination_folder = config.base_path().join(&self.name);
-        std::fs::create_dir_all(&destination_folder).unwrap();
-        destination_folder
+    fn should_download(&self, episode: &Episode) -> bool {
+        self.downloaded.contains_episode(episode)
+            || self.config.max_age().is_some_and(|max_age| {
+                (chrono::Utc::now().timestamp() - episode.published) < max_age as i64 * 86400
+            })
     }
 
-    fn sync(&self, global_config: Arc<GlobalConfig>) {
+    fn mark_downloaded(&self, episode: &Episode) -> Result<()> {
+        DownloadedEpisodes::append(&self.name, &self.config, &episode)?;
+        Ok(())
+    }
+
+    fn sync(&self) -> Result<()> {
         println!("Syncing {}", &self.name);
 
-        let config = self.combined_config(global_config);
-        let downloaded = DownloadedEpisodes::load(&self.name, &config);
-        let download_folder = self.download_folder(&config);
-
         let episodes: Vec<Episode> = self
-            .load_episodes()
+            .load_episodes()?
             .into_iter()
-            .filter(|episode| episode.should_download(&config, &downloaded))
+            .filter(|episode| self.should_download(episode))
             .collect();
 
         if episodes.is_empty() {
-            println!("nothing to download!");
-        } else {
-            println!("downloading {} episodes!", episodes.len());
-
-            for episode in episodes {
-                println!("downloading {}", episode.title());
-                episode.download(download_folder.as_path());
-                DownloadedEpisodes::append(&self.name, &config, &episode);
-            }
+            println!("Nothing to download.");
+            return Ok(());
         }
 
-        println!("all done!");
+        println!("downloading {} episodes!", episodes.len());
+
+        for episode in episodes {
+            println!("downloading {}", &episode.title);
+
+            episode.download(self.download_folder()?.as_path())?;
+            self.mark_downloaded(&episode)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -228,41 +168,38 @@ impl Podcast {
 struct DownloadedEpisodes(HashSet<String>);
 
 impl DownloadedEpisodes {
-    fn contains_episode(&self, item: &rss::Item) -> bool {
-        self.0.contains(item.guid().unwrap().value())
+    fn contains_episode(&self, episode: &Episode) -> bool {
+        self.0.contains(&episode.guid)
     }
 
-    fn load(name: &str, config: &CombinedConfig) -> Self {
-        let path = Self::file_path(&config, name);
+    fn load(name: &str, config: &CombinedConfig) -> Result<Self> {
+        let path = Self::file_path(config, name);
 
         let s = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Self::default();
+                return Ok(Self::default());
             }
-            Err(_e) => panic!(),
+            e @ Err(_) => e?,
         };
 
-        let set: HashSet<String> = s
-            .lines()
-            .filter_map(|line| line.split_whitespace().next().map(String::from))
-            .collect();
-
-        Self(set)
+        Ok(Self(
+            s.lines()
+                .filter_map(|line| line.split_whitespace().next().map(String::from))
+                .collect(),
+        ))
     }
 
-    fn append(name: &str, config: &CombinedConfig, episode: &Episode) {
+    fn append(name: &str, config: &CombinedConfig, episode: &Episode) -> Result<()> {
         let path = Self::file_path(config, name);
 
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
-            .open(path)
-            .unwrap();
+            .open(path)?;
 
-        let line = Self::format(&episode);
-
-        writeln!(file, "{}", line).unwrap();
+        writeln!(file, "{}", Self::format(&episode))?;
+        Ok(())
     }
 
     fn file_path(config: &CombinedConfig, pod_name: &str) -> PathBuf {
@@ -270,6 +207,6 @@ impl DownloadedEpisodes {
     }
 
     fn format(episode: &Episode) -> String {
-        format!("{} \"{}\"", episode.guid(), episode.title())
+        format!("{} \"{}\"", &episode.guid, &episode.title)
     }
 }

@@ -13,11 +13,12 @@ mod config;
 
 fn main() -> Result<()> {
     let global_config = Arc::new(GlobalConfig::load()?);
-    let podcasts = Podcast::load_all(global_config)?;
 
-    for podcast in podcasts {
+    for podcast in Podcast::load_all(global_config)? {
         podcast.sync()?;
     }
+
+    println!("Syncing finished.");
 
     Ok(())
 }
@@ -125,10 +126,10 @@ impl Podcast {
     }
 
     fn should_download(&self, episode: &Episode) -> bool {
-        self.downloaded.contains_episode(episode)
+        !(self.downloaded.contains_episode(episode)
             || self.config.max_age().is_some_and(|max_age| {
-                (chrono::Utc::now().timestamp() - episode.published) < max_age as i64 * 86400
-            })
+                (chrono::Utc::now().timestamp() - episode.published) > max_age as i64 * 86400
+            }))
     }
 
     fn mark_downloaded(&self, episode: &Episode) -> Result<()> {
@@ -153,11 +154,13 @@ impl Podcast {
         println!("downloading {} episodes!", episodes.len());
 
         for episode in episodes {
-            println!("downloading {}", &episode.title);
+            println!("downloading: \"{}\"", &episode.title);
 
             episode.download(self.download_folder()?.as_path())?;
             self.mark_downloaded(&episode)?;
         }
+
+        println!("{} finished syncing.", &self.name);
 
         Ok(())
     }

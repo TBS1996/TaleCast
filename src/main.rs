@@ -18,16 +18,16 @@ fn main() -> Result<()> {
         podcast.sync()?;
     }
 
-    println!("Syncing finished.");
+    println!("Syncing complete!");
 
     Ok(())
 }
 
-fn channel_path() -> Result<PathBuf> {
+fn podcasts_path() -> Result<PathBuf> {
     Ok(dirs::config_dir()
         .ok_or(anyhow::Error::msg("no config dir found"))?
         .join("cringecast")
-        .join("channels.toml"))
+        .join("podcasts.toml"))
 }
 
 struct Episode {
@@ -85,7 +85,7 @@ struct Podcast {
 impl Podcast {
     fn load_all(global_config: Arc<GlobalConfig>) -> Result<Vec<Self>> {
         let configs: HashMap<String, PodcastConfig> = {
-            let config_str = std::fs::read_to_string(channel_path()?)?;
+            let config_str = std::fs::read_to_string(podcasts_path()?)?;
             toml::from_str(&config_str)?
         };
 

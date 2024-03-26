@@ -1,7 +1,11 @@
-use std::io::Write;
+use std::io::Write as IoWrite;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use futures_util::StreamExt;
+use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::Client;
 
 use crate::config::{CombinedConfig, GlobalConfig, PodcastConfig};
 
@@ -9,14 +13,36 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 
+use indicatif::MultiProgress;
+
 mod config;
 
 fn main() -> Result<()> {
     let global_config = Arc::new(GlobalConfig::load()?);
 
-    for podcast in Podcast::load_all(global_config)? {
-        podcast.sync()?;
-    }
+    println!("Checking for new episodes");
+    tokio::runtime::Runtime::new()?.block_on(async {
+        let mp = MultiProgress::new();
+        let mut futures = vec![];
+
+        for podcast in Podcast::load_all(global_config).unwrap() {
+            let pb = mp.add(ProgressBar::new_spinner());
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}")
+                    .unwrap(),
+            );
+            pb.set_message(podcast.name.clone());
+
+            let future = tokio::task::spawn(async move {
+                podcast.sync(pb).await.unwrap();
+            });
+
+            futures.push(future);
+        }
+
+        let _results = futures::future::join_all(futures).await;
+    });
 
     println!("Syncing complete!");
 
@@ -28,6 +54,10 @@ fn podcasts_path() -> Result<PathBuf> {
         .ok_or(anyhow::Error::msg("no config dir found"))?
         .join("cringecast")
         .join("podcasts.toml"))
+}
+
+fn current_unix() -> i64 {
+    chrono::Utc::now().timestamp()
 }
 
 struct Episode {
@@ -62,8 +92,11 @@ impl Episode {
         })
     }
 
-    fn download(&self, folder: &Path) -> Result<()> {
-        let mut reader = ureq::get(&self.url).call()?.into_reader();
+    async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<()> {
+        let response = Client::new().get(&self.url).send().await?;
+        let total_size = response.content_length().unwrap_or(0);
+
+        pb.set_length(total_size);
 
         let mut file = {
             let file_name = self.title.replace(" ", "_") + ".mp3";
@@ -71,7 +104,23 @@ impl Episode {
             std::fs::File::create(&file_path)?
         };
 
-        std::io::copy(&mut reader, &mut file)?;
+        let mut downloaded: u64 = 0;
+        let mut stream = response.bytes_stream();
+
+        while let Some(item) = stream.next().await {
+            let chunk = item?;
+            file.write_all(&chunk)?;
+            let new = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
+            pb.set_position(new);
+            downloaded = new;
+        }
+
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} {msg}")
+                .unwrap(),
+        );
+
         Ok(())
     }
 }
@@ -104,19 +153,23 @@ impl Podcast {
         Ok(podcasts)
     }
 
-    fn load_episodes(&self) -> Result<Vec<Episode>> {
-        let data = {
-            let mut reader = ureq::agent().get(&self.config.url()).call()?.into_reader();
-            let mut data = vec![];
-            reader.read_to_end(&mut data)?;
-            data
-        };
+    async fn load_episodes(&self) -> Result<Vec<Episode>> {
+        let response = reqwest::get(self.config.url()).await?;
 
-        rss::Channel::read_from(data.as_slice())?
-            .into_items()
-            .into_iter()
-            .map(Episode::new)
-            .collect()
+        if response.status().is_success() {
+            let data = response.bytes().await?;
+
+            rss::Channel::read_from(&data[..])?
+                .into_items()
+                .into_iter()
+                .map(Episode::new)
+                .collect()
+        } else {
+            Err(anyhow::anyhow!(
+                "Failed to download RSS feed: HTTP {}",
+                response.status()
+            ))
+        }
     }
 
     fn download_folder(&self) -> Result<PathBuf> {
@@ -126,10 +179,28 @@ impl Podcast {
     }
 
     fn should_download(&self, episode: &Episode) -> bool {
-        !(self.downloaded.contains_episode(episode)
-            || self.config.max_age().is_some_and(|max_age| {
-                (chrono::Utc::now().timestamp() - episode.published) > max_age as i64 * 86400
-            }))
+        if self.downloaded.contains_episode(episode) {
+            return false;
+        };
+
+        if self
+            .config
+            .max_age()
+            .is_some_and(|max_age| (current_unix() - episode.published) > max_age as i64 * 86400)
+        {
+            return false;
+        };
+
+        if self.config.earliest_date().is_some_and(|date| {
+            chrono::DateTime::parse_from_rfc3339(date)
+                .unwrap()
+                .timestamp()
+                > episode.published
+        }) {
+            return false;
+        }
+
+        true
     }
 
     fn mark_downloaded(&self, episode: &Episode) -> Result<()> {
@@ -137,30 +208,41 @@ impl Podcast {
         Ok(())
     }
 
-    fn sync(&self) -> Result<()> {
-        println!("Syncing {}", &self.name);
-
+    async fn sync(&self, pb: ProgressBar) -> Result<()> {
+        let namepad = format!("{:<35}", &self.name);
         let episodes: Vec<Episode> = self
-            .load_episodes()?
+            .load_episodes()
+            .await?
             .into_iter()
             .filter(|episode| self.should_download(episode))
             .collect();
 
         if episodes.is_empty() {
-            println!("Nothing to download.");
+            pb.finish_with_message(format!("✅  {}", &self.name));
             return Ok(());
         }
 
-        println!("downloading {} episodes!", episodes.len());
+        let download_folder = self.download_folder()?;
+        for (index, episode) in episodes.iter().enumerate() {
+            let current = index + 1;
+            let total = episodes.len();
+            {
+                pb.set_position(0);
+                pb.set_style(
+                    ProgressStyle::default_bar()
+                        .template("{spinner:.green} {msg} {bar:25.cyan/blue} {bytes}/{total_bytes}")
+                        .unwrap(),
+                );
+                pb.set_message(format!("{} {}/{}", &namepad, current, total));
+            }
 
-        for episode in episodes {
-            println!("downloading: \"{}\"", &episode.title);
-
-            episode.download(self.download_folder()?.as_path())?;
+            episode.download(&download_folder, &pb).await?;
             self.mark_downloaded(&episode)?;
         }
 
-        println!("{} finished syncing.", &self.name);
+        {
+            pb.finish_with_message(format!("✅  {}", &self.name));
+        }
 
         Ok(())
     }

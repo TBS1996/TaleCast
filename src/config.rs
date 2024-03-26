@@ -27,19 +27,21 @@ impl CombinedConfig {
     pub fn url(&self) -> &str {
         &self.specific.url
     }
-}
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct PodcastConfig {
-    url: String,
-    max_age: Option<u32>,
-    path: Option<String>,
+    pub fn earliest_date(&self) -> Option<&str> {
+        self.specific
+            .earliest_date
+            .as_ref()
+            .or(self.global.earliest_date.as_ref())
+            .map(String::as_str)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GlobalConfig {
     max_age: Option<u32>,
     path: String,
+    earliest_date: Option<String>,
 }
 
 impl GlobalConfig {
@@ -70,6 +72,15 @@ impl Default for GlobalConfig {
                 .join("cringecast")
                 .to_string_lossy()
                 .to_string(),
+            earliest_date: None,
         }
     }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct PodcastConfig {
+    url: String,
+    max_age: Option<u32>,
+    path: Option<String>,
+    earliest_date: Option<String>,
 }

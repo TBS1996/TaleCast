@@ -109,8 +109,6 @@ impl Episode {
     }
 
     async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<()> {
-        pb.set_position(0);
-
         let response = Client::new().get(&self.url).send().await?;
         let total_size = response.content_length().unwrap_or(0);
 
@@ -132,12 +130,6 @@ impl Episode {
             pb.set_position(new);
             downloaded = new;
         }
-
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} {msg}")
-                .unwrap(),
-        );
 
         Ok(())
     }
@@ -211,7 +203,7 @@ impl Podcast {
         Ok(destination_folder)
     }
 
-    fn should_download(&self, episode: &Episode) -> bool {
+    fn should_download(&self, episode: &Episode, latest_episode: usize) -> bool {
         if self.downloaded.contains_episode(episode) {
             return false;
         };
@@ -226,8 +218,16 @@ impl Podcast {
 
         if self
             .config
-            .max_age()
+            .max_days()
             .is_some_and(|max_age| (current_unix() - episode.published) > max_age as i64 * 86400)
+        {
+            return false;
+        };
+
+        if self
+            .config
+            .max_episodes()
+            .is_some_and(|max_episodes| (latest_episode - max_episodes as usize) > episode.index)
         {
             return false;
         };
@@ -250,12 +250,25 @@ impl Podcast {
     }
 
     async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<usize> {
-        let episodes: Vec<Episode> = self
-            .load_episodes()
-            .await?
+        let mut episodes: Vec<Episode> = self.load_episodes().await?;
+        let episode_qty = episodes.len();
+
+        episodes = episodes
             .into_iter()
-            .filter(|episode| self.should_download(episode))
+            .filter(|episode| self.should_download(episode, episode_qty))
             .collect();
+
+        // In backlog mode it makes more sense to download earliest episode first.
+        // in standard mode, the most recent episodes are seen as more relevant.
+        match self.config.mode() {
+            DownloadMode::Backlog { .. } => {
+                episodes.sort_by_key(|ep| ep.index);
+            }
+            DownloadMode::Standard { .. } => {
+                episodes.sort_by_key(|ep| ep.index);
+                episodes.reverse();
+            }
+        }
 
         pb.set_style(
             ProgressStyle::default_bar()
@@ -280,6 +293,7 @@ impl Podcast {
             );
 
             pb.set_message(msg);
+            pb.set_position(0);
 
             episode.download(&download_folder, &pb).await?;
             self.mark_downloaded(&episode)?;

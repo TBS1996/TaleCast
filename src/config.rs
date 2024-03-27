@@ -31,14 +31,26 @@ impl CombinedConfig {
         Self { global, specific }
     }
 
-    pub fn max_age(&self) -> Option<i64> {
-        let DownloadMode::Standard { max_age } = self.specific.mode else {
+    pub fn max_days(&self) -> Option<i64> {
+        let DownloadMode::Standard { max_days, .. } = self.specific.mode else {
             return None;
         };
 
-        match max_age {
+        match max_days {
             ConfigOption::Disabled => None,
-            ConfigOption::UseGlobal => self.global.max_age,
+            ConfigOption::UseGlobal => self.global.max_days,
+            ConfigOption::Enabled(age) => Some(age),
+        }
+    }
+
+    pub fn max_episodes(&self) -> Option<i64> {
+        let DownloadMode::Standard { max_episodes, .. } = self.specific.mode else {
+            return None;
+        };
+
+        match max_episodes {
+            ConfigOption::Disabled => None,
+            ConfigOption::UseGlobal => self.global.max_episodes,
             ConfigOption::Enabled(age) => Some(age),
         }
     }
@@ -65,8 +77,10 @@ impl CombinedConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct GlobalConfig {
-    max_age: Option<i64>,
+    max_days: Option<i64>,
+    max_episodes: Option<i64>,
     path: PathBuf,
     earliest_date: Option<String>,
 }
@@ -94,7 +108,8 @@ impl GlobalConfig {
 impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
-            max_age: Some(120),
+            max_days: Some(120),
+            max_episodes: Some(10),
             path: dirs::home_dir()
                 .expect("home dir not found")
                 .join("cringecast"),
@@ -105,8 +120,14 @@ impl Default for GlobalConfig {
 
 #[derive(Debug, Clone, Copy)]
 pub enum DownloadMode {
-    Standard { max_age: ConfigOption<i64> },
-    Backlog { start: Unix, interval: i64 },
+    Standard {
+        max_days: ConfigOption<i64>,
+        max_episodes: ConfigOption<i64>,
+    },
+    Backlog {
+        start: Unix,
+        interval: i64,
+    },
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -115,7 +136,9 @@ struct RawPodcastConfig {
     url: String,
     path: Option<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_config_option_int")]
-    max_age: ConfigOption<i64>,
+    max_days: ConfigOption<i64>,
+    #[serde(default, deserialize_with = "deserialize_config_option_int")]
+    max_episodes: ConfigOption<i64>,
     #[serde(default, deserialize_with = "deserialize_config_option_string")]
     earliest_date: ConfigOption<String>,
     backlog_start: Option<String>,
@@ -126,7 +149,8 @@ impl From<RawPodcastConfig> for PodcastConfig {
     fn from(config: RawPodcastConfig) -> Self {
         let mode = match (config.backlog_start, config.backlog_interval) {
             (None, None) => DownloadMode::Standard {
-                max_age: config.max_age,
+                max_days: config.max_days,
+                max_episodes: config.max_episodes,
             },
             (Some(_), None) => panic!("missing backlog_interval"),
             (None, Some(_)) => panic!("missing backlog_start"),

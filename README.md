@@ -2,13 +2,15 @@
 
 Simple CLI podcatcher.
 
-<video src='https://github.com/TBS1996/kjattify/raw/main/cringecast.mp4' />
+
+https://github.com/TBS1996/CringeCast/assets/56874491/ca3b08e0-b509-44a2-a214-5b7c20a0f609
 
 ## why?
 
 i had a few issues that caused me to write this program.
 
 1. Bad filenames.
+
 I use syncthing to sync to my phone and from there i use a normal audio player. The filenames are usually unintelligble so I wanted a podcatcher that renamed the filename to the title of the episode.
 
 2. Better control over which episodes to download.

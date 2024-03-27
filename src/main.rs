@@ -219,7 +219,7 @@ impl Podcast {
         if self
             .config
             .max_days()
-            .is_some_and(|max_age| (current_unix() - episode.published) > max_age as i64 * 86400)
+            .is_some_and(|max_days| (current_unix() - episode.published) > max_days as i64 * 86400)
         {
             return false;
         };
@@ -308,7 +308,7 @@ impl Podcast {
 
 /// Keeps track of which episodes have already been downloaded.
 #[derive(Debug, Default)]
-struct DownloadedEpisodes(HashMap<String, i64>);
+struct DownloadedEpisodes(HashMap<String, Unix>);
 
 impl DownloadedEpisodes {
     fn contains_episode(&self, episode: &Episode) -> bool {
@@ -326,7 +326,7 @@ impl DownloadedEpisodes {
             e @ Err(_) => e?,
         };
 
-        let mut hashmap: HashMap<String, i64> = HashMap::new();
+        let mut hashmap: HashMap<String, Unix> = HashMap::new();
 
         for line in s.trim().lines() {
             let mut parts = line.split_whitespace();

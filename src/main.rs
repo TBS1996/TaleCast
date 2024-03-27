@@ -1,21 +1,19 @@
+use crate::config::{CombinedConfig, GlobalConfig, PodcastConfig};
+use anyhow::Result;
+use config::DownloadMode;
+use futures_util::StreamExt;
+use indicatif::MultiProgress;
+use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::Client;
+use std::collections::HashMap;
 use std::io::Write as IoWrite;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use futures_util::StreamExt;
-use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::Client;
-
-use crate::config::{CombinedConfig, GlobalConfig, PodcastConfig};
-
-use std::collections::{HashMap, HashSet};
-
-use anyhow::Result;
-
-use indicatif::MultiProgress;
-
 mod config;
+
+pub type Unix = i64;
 
 fn main() -> Result<()> {
     let global_config = Arc::new(GlobalConfig::load()?);
@@ -41,7 +39,7 @@ fn main() -> Result<()> {
             futures.push(future);
         }
 
-        let _results = futures::future::join_all(futures).await;
+        futures::future::join_all(futures).await;
     });
 
     println!("Syncing complete!");
@@ -60,35 +58,25 @@ fn current_unix() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
+#[derive(Debug, Clone)]
 struct Episode {
     title: String,
     url: String,
     guid: String,
     published: i64,
+    index: usize,
 }
 
 impl Episode {
-    fn new(item: rss::Item) -> Result<Self> {
-        Ok(Self {
-            title: item
-                .title()
-                .ok_or(anyhow::Error::msg("title not found"))?
-                .to_owned(),
-            url: item
-                .enclosure()
-                .ok_or(anyhow::Error::msg("enclosure not found"))?
-                .url()
-                .to_owned(),
-            guid: item
-                .guid()
-                .ok_or(anyhow::Error::msg("guid not found"))?
-                .value()
-                .to_string(),
-            published: chrono::DateTime::parse_from_rfc2822(
-                item.pub_date()
-                    .ok_or(anyhow::Error::msg("published date not found"))?,
-            )?
-            .timestamp(),
+    fn new(item: rss::Item, index: usize) -> Option<Self> {
+        Some(Self {
+            title: item.title()?.to_owned(),
+            url: item.enclosure()?.url().to_owned(),
+            guid: item.guid()?.value().to_string(),
+            published: chrono::DateTime::parse_from_rfc2822(item.pub_date()?)
+                .ok()?
+                .timestamp(),
+            index,
         })
     }
 
@@ -125,6 +113,7 @@ impl Episode {
     }
 }
 
+#[derive(Debug)]
 struct Podcast {
     name: String,
     config: CombinedConfig,
@@ -154,16 +143,30 @@ impl Podcast {
     }
 
     async fn load_episodes(&self) -> Result<Vec<Episode>> {
-        let response = reqwest::get(self.config.url()).await?;
+        let response = reqwest::Client::new()
+            .get(self.config.url())
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+            )
+            .send()
+            .await?;
 
         if response.status().is_success() {
             let data = response.bytes().await?;
 
-            rss::Channel::read_from(&data[..])?
-                .into_items()
+            let mut items = rss::Channel::read_from(&data[..])?.into_items();
+            items.sort_by_key(|item| {
+                chrono::DateTime::parse_from_rfc2822(item.pub_date().unwrap_or_default())
+                    .map(|x| x.timestamp())
+                    .unwrap_or_default()
+            });
+
+            Ok(items
                 .into_iter()
-                .map(Episode::new)
-                .collect()
+                .enumerate()
+                .filter_map(|(index, item)| Episode::new(item, index))
+                .collect())
         } else {
             Err(anyhow::anyhow!(
                 "Failed to download RSS feed: HTTP {}",
@@ -182,6 +185,14 @@ impl Podcast {
         if self.downloaded.contains_episode(episode) {
             return false;
         };
+
+        if let DownloadMode::Backlog { start, interval } = self.config.mode() {
+            let days_passed = (current_unix() - start) / 86400;
+            let current_backlog_index = days_passed / interval;
+            if current_backlog_index < episode.index as i64 {
+                return false;
+            }
+        }
 
         if self
             .config
@@ -209,7 +220,6 @@ impl Podcast {
     }
 
     async fn sync(&self, pb: ProgressBar) -> Result<()> {
-        let namepad = format!("{:<35}", &self.name);
         let episodes: Vec<Episode> = self
             .load_episodes()
             .await?
@@ -223,6 +233,7 @@ impl Podcast {
         }
 
         let download_folder = self.download_folder()?;
+        let namepad = format!("{:<35}", &self.name);
         for (index, episode) in episodes.iter().enumerate() {
             let current = index + 1;
             let total = episodes.len();
@@ -249,12 +260,12 @@ impl Podcast {
 }
 
 /// Keeps track of which episodes have already been downloaded.
-#[derive(Default)]
-struct DownloadedEpisodes(HashSet<String>);
+#[derive(Debug, Default)]
+struct DownloadedEpisodes(HashMap<String, i64>);
 
 impl DownloadedEpisodes {
     fn contains_episode(&self, episode: &Episode) -> bool {
-        self.0.contains(&episode.guid)
+        self.0.contains_key(&episode.guid)
     }
 
     fn load(name: &str, config: &CombinedConfig) -> Result<Self> {
@@ -268,11 +279,21 @@ impl DownloadedEpisodes {
             e @ Err(_) => e?,
         };
 
-        Ok(Self(
-            s.lines()
-                .filter_map(|line| line.split_whitespace().next().map(String::from))
-                .collect(),
-        ))
+        let mut hashmap: HashMap<String, i64> = HashMap::new();
+
+        for line in s.trim().lines() {
+            let mut parts = line.split_whitespace();
+            if let (Some(id), Some(timestamp_str)) = (parts.next(), parts.next()) {
+                let id = id.to_string();
+                let timestamp = timestamp_str
+                    .parse::<i64>()
+                    .expect("Timestamp should be a valid i64");
+
+                hashmap.insert(id, timestamp);
+            }
+        }
+
+        Ok(Self(hashmap))
     }
 
     fn append(name: &str, config: &CombinedConfig, episode: &Episode) -> Result<()> {
@@ -283,15 +304,17 @@ impl DownloadedEpisodes {
             .create(true)
             .open(path)?;
 
-        writeln!(file, "{}", Self::format(&episode))?;
+        writeln!(
+            file,
+            "{} {} \"{}\"",
+            &episode.guid,
+            current_unix(),
+            &episode.title
+        )?;
         Ok(())
     }
 
     fn file_path(config: &CombinedConfig, pod_name: &str) -> PathBuf {
         config.base_path().join(pod_name).join(".downloaded")
-    }
-
-    fn format(episode: &Episode) -> String {
-        format!("{} \"{}\"", &episode.guid, &episode.title)
     }
 }

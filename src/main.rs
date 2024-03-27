@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         .max()
     else {
         println!("no podcasts configured");
-        return Ok(());
+        std::process::exit(1);
     };
 
     for podcast in podcasts {
@@ -145,7 +145,12 @@ struct Podcast {
 impl Podcast {
     fn load_all(global_config: Arc<GlobalConfig>) -> Result<Vec<Self>> {
         let configs: HashMap<String, PodcastConfig> = {
-            let config_str = std::fs::read_to_string(podcasts_path()?)?;
+            let path = podcasts_path()?;
+            if !path.exists() {
+                println!("You need to create a 'podcasts.toml' file to get started");
+                std::process::exit(1);
+            }
+            let config_str = std::fs::read_to_string(path)?;
             toml::from_str(&config_str)?
         };
 

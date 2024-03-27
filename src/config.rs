@@ -87,10 +87,13 @@ pub struct GlobalConfig {
 
 impl GlobalConfig {
     pub fn load() -> Result<Self> {
-        let p = dirs::config_dir()
+        let config_dir = dirs::config_dir()
             .ok_or(anyhow::Error::msg("no config dir found"))?
-            .join("cringecast")
-            .join("config.toml");
+            .join("cringecast");
+
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        let p = config_dir.join("config.toml");
 
         if !p.exists() {
             let default = Self::default();
@@ -152,8 +155,14 @@ impl From<RawPodcastConfig> for PodcastConfig {
                 max_days: config.max_days,
                 max_episodes: config.max_episodes,
             },
-            (Some(_), None) => panic!("missing backlog_interval"),
-            (None, Some(_)) => panic!("missing backlog_start"),
+            (Some(_), None) => {
+                println!("missing backlog_interval");
+                std::process::exit(1);
+            }
+            (None, Some(_)) => {
+                println!("missing backlog_start");
+                std::process::exit(1);
+            }
             (Some(start), Some(interval)) => {
                 let start = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d")
                     .expect("invalid backlog_start format. Use YYYY-MM-DD")

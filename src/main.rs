@@ -15,36 +15,64 @@ mod config;
 
 pub type Unix = i64;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let global_config = Arc::new(GlobalConfig::load()?);
 
     println!("Checking for new episodes");
-    tokio::runtime::Runtime::new()?.block_on(async {
-        let mp = MultiProgress::new();
-        let mut futures = vec![];
+    let mp = MultiProgress::new();
+    let mut futures = vec![];
 
-        for podcast in Podcast::load_all(global_config).unwrap() {
-            let pb = mp.add(ProgressBar::new_spinner());
-            pb.set_style(
-                ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}")
-                    .unwrap(),
-            );
-            pb.set_message(podcast.name.clone());
+    let mut podcasts = Podcast::load_all(global_config)?;
+    podcasts.sort_by_key(|pod| pod.name.clone());
 
-            let future = tokio::task::spawn(async move {
-                podcast.sync(pb).await.unwrap();
-            });
+    let Some(longest_name) = podcasts
+        .iter()
+        .map(|podcast| podcast.name.chars().count())
+        .max()
+    else {
+        println!("no podcasts configured");
+        return Ok(());
+    };
 
-            futures.push(future);
-        }
+    for podcast in podcasts {
+        let pb = mp.add(ProgressBar::new_spinner());
+        pb.set_style(ProgressStyle::default_spinner().template("{spinner}  {msg}")?);
+        pb.set_message(podcast.name.clone());
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-        futures::future::join_all(futures).await;
-    });
+        let future = tokio::task::spawn(async move { podcast.sync(pb, longest_name).await });
+
+        futures.push(future);
+    }
+
+    let mut episodes_downloaded = 0;
+    for future in futures {
+        episodes_downloaded += future.await??;
+    }
 
     println!("Syncing complete!");
+    println!("{} episodes downloaded.", episodes_downloaded);
 
     Ok(())
+}
+
+fn truncate_string(s: &str, max_width: usize) -> String {
+    let mut width = 0;
+    let mut truncated = String::new();
+
+    for c in s.chars() {
+        let mut buf = [0; 4];
+        let encoded_char = c.encode_utf8(&mut buf);
+        let char_width = unicode_width::UnicodeWidthStr::width(encoded_char);
+        if width + char_width > max_width {
+            break;
+        }
+        truncated.push(c);
+        width += char_width;
+    }
+
+    truncated
 }
 
 fn podcasts_path() -> Result<PathBuf> {
@@ -81,6 +109,8 @@ impl Episode {
     }
 
     async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<()> {
+        pb.set_position(0);
+
         let response = Client::new().get(&self.url).send().await?;
         let total_size = response.content_length().unwrap_or(0);
 
@@ -219,7 +249,7 @@ impl Podcast {
         Ok(())
     }
 
-    async fn sync(&self, pb: ProgressBar) -> Result<()> {
+    async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<usize> {
         let episodes: Vec<Episode> = self
             .load_episodes()
             .await?
@@ -227,35 +257,38 @@ impl Podcast {
             .filter(|episode| self.should_download(episode))
             .collect();
 
-        if episodes.is_empty() {
-            pb.finish_with_message(format!("✅  {}", &self.name));
-            return Ok(());
-        }
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")?,
+        );
 
         let download_folder = self.download_folder()?;
-        let namepad = format!("{:<35}", &self.name);
         for (index, episode) in episodes.iter().enumerate() {
-            let current = index + 1;
-            let total = episodes.len();
-            {
-                pb.set_position(0);
-                pb.set_style(
-                    ProgressStyle::default_bar()
-                        .template("{spinner:.green} {msg} {bar:25.cyan/blue} {bytes}/{total_bytes}")
-                        .unwrap(),
-                );
-                pb.set_message(format!("{} {}/{}", &namepad, current, total));
-            }
+            let fitted_episode_title = {
+                let title_length = 30;
+                let padded = &format!("{:<width$}", &episode.title, width = title_length);
+                truncate_string(padded, title_length)
+            };
+
+            let msg = format!(
+                "{:<podcast_width$} {}/{} {}",
+                &self.name,
+                index + 1,
+                episodes.len(),
+                &fitted_episode_title,
+                podcast_width = longest_podcast_name + 3
+            );
+
+            pb.set_message(msg);
 
             episode.download(&download_folder, &pb).await?;
             self.mark_downloaded(&episode)?;
         }
 
-        {
-            pb.finish_with_message(format!("✅  {}", &self.name));
-        }
+        pb.set_style(ProgressStyle::default_bar().template("{msg}")?);
+        pb.finish_with_message(format!("✅ {}", &self.name));
 
-        Ok(())
+        Ok(episodes.len())
     }
 }
 

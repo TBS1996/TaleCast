@@ -2,7 +2,7 @@
 
 Simple CLI podcatcher.
 
-https://github.com/TBS1996/kjattify/raw/main/cringecast.mp4
+<video src='https://github.com/TBS1996/kjattify/raw/main/cringecast.mp4' />
 
 ## why?
 

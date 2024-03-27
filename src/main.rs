@@ -19,7 +19,7 @@ pub type Unix = i64;
 async fn main() -> Result<()> {
     let global_config = Arc::new(GlobalConfig::load()?);
 
-    println!("Checking for new episodes");
+    eprintln!("Checking for new episodes");
     let mp = MultiProgress::new();
     let mut futures = vec![];
 
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
         .map(|podcast| podcast.name.chars().count())
         .max()
     else {
-        println!("no podcasts configured");
+        eprintln!("no podcasts configured");
         std::process::exit(1);
     };
 
@@ -51,8 +51,8 @@ async fn main() -> Result<()> {
         episodes_downloaded += future.await??;
     }
 
-    println!("Syncing complete!");
-    println!("{} episodes downloaded.", episodes_downloaded);
+    eprintln!("Syncing complete!");
+    eprintln!("{} episodes downloaded.", episodes_downloaded);
 
     Ok(())
 }
@@ -147,7 +147,7 @@ impl Podcast {
         let configs: HashMap<String, PodcastConfig> = {
             let path = podcasts_path()?;
             if !path.exists() {
-                println!("You need to create a 'podcasts.toml' file to get started");
+                eprintln!("You need to create a 'podcasts.toml' file to get started");
                 std::process::exit(1);
             }
             let config_str = std::fs::read_to_string(path)?;

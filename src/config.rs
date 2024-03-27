@@ -156,11 +156,11 @@ impl From<RawPodcastConfig> for PodcastConfig {
                 max_episodes: config.max_episodes,
             },
             (Some(_), None) => {
-                println!("missing backlog_interval");
+                eprintln!("missing backlog_interval");
                 std::process::exit(1);
             }
             (None, Some(_)) => {
-                println!("missing backlog_start");
+                eprintln!("missing backlog_start");
                 std::process::exit(1);
             }
             (Some(start), Some(interval)) => {

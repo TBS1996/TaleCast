@@ -2,6 +2,7 @@ use crate::config::{CombinedConfig, GlobalConfig, PodcastConfig};
 use anyhow::Result;
 use config::DownloadMode;
 use futures_util::StreamExt;
+use id3::TagLike;
 use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -19,13 +20,14 @@ pub type Unix = i64;
 async fn main() -> Result<()> {
     let global_config = Arc::new(GlobalConfig::load()?);
 
-    eprintln!("Checking for new episodes");
+    eprintln!("Checking for new episodes...");
     let mp = MultiProgress::new();
     let mut futures = vec![];
 
     let mut podcasts = Podcast::load_all(global_config)?;
     podcasts.sort_by_key(|pod| pod.name.clone());
 
+    // Longest podcast name is used for formatting.
     let Some(longest_name) = podcasts
         .iter()
         .map(|podcast| podcast.name.chars().count())
@@ -93,6 +95,7 @@ struct Episode {
     guid: String,
     published: i64,
     index: usize,
+    _inner: rss::Item,
 }
 
 impl Episode {
@@ -105,21 +108,22 @@ impl Episode {
                 .ok()?
                 .timestamp(),
             index,
+            _inner: item,
         })
     }
 
-    async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<()> {
+    async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<PathBuf> {
         let response = Client::new().get(&self.url).send().await?;
         let total_size = response.content_length().unwrap_or(0);
 
         pb.set_length(total_size);
 
-        let mut file = {
+        let path = {
             let file_name = self.title.replace(" ", "_") + ".mp3";
-            let file_path = folder.join(file_name);
-            std::fs::File::create(&file_path)?
+            folder.join(file_name)
         };
 
+        let mut file = std::fs::File::create(&path)?;
         let mut downloaded: u64 = 0;
         let mut stream = response.bytes_stream();
 
@@ -131,7 +135,7 @@ impl Episode {
             downloaded = new;
         }
 
-        Ok(())
+        Ok(path)
     }
 }
 
@@ -255,7 +259,7 @@ impl Podcast {
     }
 
     async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<usize> {
-        let mut episodes: Vec<Episode> = self.load_episodes().await?;
+        let mut episodes = self.load_episodes().await?;
         let episode_qty = episodes.len();
 
         episodes = episodes
@@ -300,7 +304,13 @@ impl Podcast {
             pb.set_message(msg);
             pb.set_position(0);
 
-            episode.download(&download_folder, &pb).await?;
+            let file_path = episode.download(&download_folder, &pb).await?;
+
+            let mut tags = id3::Tag::read_from_path(&file_path)?;
+            for (id, value) in self.config.custom_tags() {
+                tags.set_text(id, value);
+            }
+            tags.write_to_path(&file_path, id3::Version::Id3v24)?;
             self.mark_downloaded(&episode)?;
         }
 

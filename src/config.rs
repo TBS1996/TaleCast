@@ -1,5 +1,6 @@
 use crate::Unix;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -74,6 +75,22 @@ impl CombinedConfig {
             ConfigOption::Enabled(date) => Some(&date),
         }
     }
+
+    pub fn custom_tags<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a str, &'a str)> + 'a> {
+        let global = self
+            .global
+            .custom_tags
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()));
+
+        let specific = self
+            .specific
+            .custom_tags
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()));
+
+        Box::new(global.chain(specific))
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -83,6 +100,8 @@ pub struct GlobalConfig {
     max_episodes: Option<i64>,
     path: PathBuf,
     earliest_date: Option<String>,
+    #[serde(default)]
+    custom_tags: HashMap<String, String>,
 }
 
 impl GlobalConfig {
@@ -117,6 +136,7 @@ impl Default for GlobalConfig {
                 .expect("home dir not found")
                 .join("cringecast"),
             earliest_date: None,
+            custom_tags: Default::default(),
         }
     }
 }
@@ -146,6 +166,8 @@ struct RawPodcastConfig {
     earliest_date: ConfigOption<String>,
     backlog_start: Option<String>,
     backlog_interval: Option<i64>,
+    #[serde(default)]
+    custom_tags: HashMap<String, String>,
 }
 
 impl From<RawPodcastConfig> for PodcastConfig {
@@ -179,6 +201,7 @@ impl From<RawPodcastConfig> for PodcastConfig {
             path: config.path,
             earliest_date: config.earliest_date,
             mode,
+            custom_tags: config.custom_tags,
         }
     }
 }
@@ -190,6 +213,7 @@ pub struct PodcastConfig {
     path: Option<PathBuf>,
     earliest_date: ConfigOption<String>,
     mode: DownloadMode,
+    custom_tags: HashMap<String, String>,
 }
 
 fn deserialize_config_option_int<'de, D>(deserializer: D) -> Result<ConfigOption<i64>, D::Error>

@@ -310,8 +310,21 @@ impl Podcast {
             for (id, value) in self.config.custom_tags() {
                 tags.set_text(id, value);
             }
+
+            if tags.artist().is_none() {
+                if let Some(author) = episode._inner.author() {
+                    tags.set_artist(author);
+                }
+            }
+
             tags.write_to_path(&file_path, id3::Version::Id3v24)?;
             self.mark_downloaded(&episode)?;
+
+            if let Some(script_path) = self.config.download_hook() {
+                std::process::Command::new(script_path)
+                    .arg(&file_path)
+                    .output()?;
+            }
         }
 
         pb.set_style(ProgressStyle::default_bar().template("{msg}")?);

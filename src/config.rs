@@ -76,6 +76,14 @@ impl CombinedConfig {
         }
     }
 
+    pub fn download_hook(&self) -> Option<&Path> {
+        self.specific
+            .download_hook
+            .as_ref()
+            .or(self.global.download_hook.as_ref())
+            .map(PathBuf::as_path)
+    }
+
     pub fn custom_tags<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a str, &'a str)> + 'a> {
         let global = self
             .global
@@ -102,6 +110,7 @@ pub struct GlobalConfig {
     earliest_date: Option<String>,
     #[serde(default)]
     custom_tags: HashMap<String, String>,
+    download_hook: Option<PathBuf>,
 }
 
 impl GlobalConfig {
@@ -137,6 +146,7 @@ impl Default for GlobalConfig {
                 .join("cringecast"),
             earliest_date: None,
             custom_tags: Default::default(),
+            download_hook: None,
         }
     }
 }
@@ -168,6 +178,7 @@ struct RawPodcastConfig {
     backlog_interval: Option<i64>,
     #[serde(default)]
     custom_tags: HashMap<String, String>,
+    download_hook: Option<PathBuf>,
 }
 
 impl From<RawPodcastConfig> for PodcastConfig {
@@ -202,6 +213,7 @@ impl From<RawPodcastConfig> for PodcastConfig {
             earliest_date: config.earliest_date,
             mode,
             custom_tags: config.custom_tags,
+            download_hook: config.download_hook,
         }
     }
 }
@@ -214,6 +226,7 @@ pub struct PodcastConfig {
     earliest_date: ConfigOption<String>,
     mode: DownloadMode,
     custom_tags: HashMap<String, String>,
+    download_hook: Option<PathBuf>,
 }
 
 fn deserialize_config_option_int<'de, D>(deserializer: D) -> Result<ConfigOption<i64>, D::Error>

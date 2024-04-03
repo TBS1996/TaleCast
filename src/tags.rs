@@ -63,7 +63,7 @@ pub async fn set_tags<'a>(
     episode: &Episode,
     file_path: &std::path::Path,
     custom_tags: &HashMap<String, String>,
-) -> Result<()> {
+) -> Result<id3::Tag> {
     let mut tags = id3::Tag::read_from_path(&file_path)?;
     for (id, value) in custom_tags {
         tags.set_text(id, value);
@@ -111,8 +111,8 @@ pub async fn set_tags<'a>(
     }
 
     if tags.get(Id3Tag::DESCRIPTION).is_none() {
-        if let Some(copyright) = channel.copyright() {
-            tags.set_text(Id3Tag::DESCRIPTION, copyright);
+        if let Some(desc) = episode._inner.description() {
+            tags.set_text(Id3Tag::DESCRIPTION, desc);
         }
     }
 
@@ -185,5 +185,5 @@ pub async fn set_tags<'a>(
 
     tags.write_to_path(&file_path, id3::Version::Id3v24)?;
 
-    Ok(())
+    Ok(tags)
 }

@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use config::DownloadMode;
 use futures_util::StreamExt;
+use id3::TagLike;
 use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -135,8 +136,22 @@ impl Episode {
 
         pb.set_length(total_size);
 
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|ct| ct.to_str().ok())
+            .unwrap_or("application/octet-stream");
+
+        let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
+
+        let ext = if extensions.contains(&"mp3") {
+            "mp3"
+        } else {
+            extensions.first().unwrap()
+        };
+
         let path = {
-            let file_name = self.title.replace(" ", "_") + ".mp3";
+            let file_name = self.title.replace(" ", "_") + "." + ext;
             folder.join(file_name)
         };
 
@@ -327,13 +342,15 @@ impl Podcast {
             let file_path = episode.download(&download_folder, &pb).await?;
 
             self.mark_downloaded(&episode)?;
-            crate::tags::set_tags(
+            let tags = crate::tags::set_tags(
                 channel.clone(),
                 &episode,
                 &file_path,
                 &self.config.custom_tags,
             )
             .await?;
+
+            rename_file(&file_path, &self.config, tags);
 
             if let Some(script_path) = &self.config.download_hook {
                 std::process::Command::new(script_path)
@@ -407,5 +424,66 @@ impl DownloadedEpisodes {
 
     fn file_path(config: &Config, pod_name: &str) -> PathBuf {
         config.download_path.join(pod_name).join(".downloaded")
+    }
+}
+
+fn rename_file(file: &Path, config: &Config, tags: id3::Tag) {
+    let text = config.name_pattern.clone();
+    let re = regex::Regex::new(r"\{([^\}]+)\}").unwrap();
+
+    let mut result = String::new();
+    let mut last_end = 0;
+
+    let date = {
+        let mut date = tags.date_released().unwrap();
+        date.hour = None;
+        date.minute = None;
+        date.second = None;
+        date.to_string()
+    };
+
+    for cap in re.captures_iter(&text) {
+        let match_range = cap.get(0).unwrap().range();
+        let key = &cap[1];
+
+        result.push_str(&text[last_end..match_range.start]);
+
+        let replacement = match key {
+            "date" => date.clone(),
+            code if code.len() == 4 => tags
+                .get(code)
+                .map(|x| x.content())
+                .map(|c| c.to_string())
+                .unwrap_or(format!("{{{}}}", code)),
+
+            _ => "unknown".to_string(),
+        };
+
+        result.push_str(&replacement);
+
+        last_end = match_range.end;
+    }
+
+    result.push_str(&text[last_end..]);
+
+    let new_name = match file.extension() {
+        Some(extension) => {
+            let mut new_path = file.with_file_name(result);
+            new_path.set_extension(extension);
+            new_path
+        }
+        None => file.with_file_name(result),
+    };
+
+    std::fs::rename(file, new_name).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rename() {
+        //rename_file();
     }
 }

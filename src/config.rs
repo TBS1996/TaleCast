@@ -33,10 +33,15 @@ impl<T: Clone> ConfigOption<T> {
     }
 }
 
+fn default_name_pattern() -> String {
+    "{date} - {TIT2}".to_owned()
+}
+
 /// Configuration for a specific podcast.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub url: String,
+    pub name_pattern: String,
     pub download_path: PathBuf,
     pub custom_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
@@ -71,6 +76,7 @@ impl Config {
 
         Self {
             url: podcast_config.url,
+            name_pattern: global_config.name_pattern.clone(),
             mode,
             custom_tags,
             download_hook,
@@ -82,6 +88,8 @@ impl Config {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct GlobalConfig {
+    #[serde(default = "default_name_pattern")]
+    name_pattern: String,
     max_days: Option<i64>,
     max_episodes: Option<i64>,
     path: PathBuf,
@@ -110,6 +118,7 @@ impl GlobalConfig {
 impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
+            name_pattern: default_name_pattern(),
             max_days: Some(120),
             max_episodes: Some(10),
             path: {

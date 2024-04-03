@@ -1,8 +1,9 @@
-use crate::config::{CombinedConfig, GlobalConfig, PodcastConfig};
+use crate::config::{Config, GlobalConfig, PodcastConfig};
+use crate::utils::current_unix;
 use anyhow::Result;
+use clap::Parser;
 use config::DownloadMode;
 use futures_util::StreamExt;
-use id3::TagLike;
 use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -10,21 +11,48 @@ use std::collections::HashMap;
 use std::io::Write as IoWrite;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 mod config;
+mod opml;
+mod tags;
+mod utils;
 
-pub type Unix = i64;
+pub type Unix = std::time::Duration;
+pub const APPNAME: &'static str = "cringecast";
+
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, value_name = "FILE")]
+    import: Option<PathBuf>,
+    #[arg(short, long, value_name = "FILE")]
+    export: Option<PathBuf>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let global_config = Arc::new(GlobalConfig::load()?);
+    let args = Args::parse();
+
+    let should_sync = args.import.is_none() && args.export.is_none();
+
+    if let Some(path) = args.import {
+        crate::opml::import(&path)?;
+    }
+
+    if let Some(path) = args.export {
+        crate::opml::export(&path)?;
+    }
+
+    if !should_sync {
+        return Ok(());
+    }
 
     eprintln!("Checking for new episodes...");
     let mp = MultiProgress::new();
     let mut futures = vec![];
 
-    let mut podcasts = Podcast::load_all(global_config)?;
+    let global_config = GlobalConfig::load()?;
+    let mut podcasts = Podcast::load_all(&global_config)?;
     podcasts.sort_by_key(|pod| pod.name.clone());
 
     // Longest podcast name is used for formatting.
@@ -39,7 +67,7 @@ async fn main() -> Result<()> {
 
     for podcast in podcasts {
         let pb = mp.add(ProgressBar::new_spinner());
-        pb.set_style(ProgressStyle::default_spinner().template("{spinner}  {msg}")?);
+        pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green}  {msg}")?);
         pb.set_message(podcast.name.clone());
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
@@ -75,17 +103,6 @@ fn truncate_string(s: &str, max_width: usize) -> String {
     }
 
     truncated
-}
-
-fn podcasts_path() -> Result<PathBuf> {
-    Ok(dirs::config_dir()
-        .ok_or(anyhow::Error::msg("no config dir found"))?
-        .join("cringecast")
-        .join("podcasts.toml"))
-}
-
-fn current_unix() -> i64 {
-    chrono::Utc::now().timestamp()
 }
 
 #[derive(Debug, Clone)]
@@ -142,14 +159,14 @@ impl Episode {
 #[derive(Debug)]
 struct Podcast {
     name: String,
-    config: CombinedConfig,
+    config: Config,
     downloaded: DownloadedEpisodes,
 }
 
 impl Podcast {
-    fn load_all(global_config: Arc<GlobalConfig>) -> Result<Vec<Self>> {
+    fn load_all(global_config: &GlobalConfig) -> Result<Vec<Self>> {
         let configs: HashMap<String, PodcastConfig> = {
-            let path = podcasts_path()?;
+            let path = crate::utils::podcasts_toml()?;
             if !path.exists() {
                 eprintln!("You need to create a 'podcasts.toml' file to get started");
                 std::process::exit(1);
@@ -160,7 +177,7 @@ impl Podcast {
 
         let mut podcasts = vec![];
         for (name, config) in configs {
-            let config = CombinedConfig::new(Arc::clone(&global_config), config);
+            let config = Config::new(&global_config, config);
             let downloaded = DownloadedEpisodes::load(&name, &config)?;
 
             podcasts.push(Self {
@@ -173,9 +190,9 @@ impl Podcast {
         Ok(podcasts)
     }
 
-    async fn load_episodes(&self) -> Result<Vec<Episode>> {
+    async fn load_episodes(&self) -> Result<(rss::Channel, Vec<Episode>)> {
         let response = reqwest::Client::new()
-            .get(self.config.url())
+            .get(&self.config.url)
             .header(
                 "User-Agent",
                 "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
@@ -186,6 +203,7 @@ impl Podcast {
         if response.status().is_success() {
             let data = response.bytes().await?;
 
+            let channel = rss::Channel::read_from(&data[..])?;
             let mut items = rss::Channel::read_from(&data[..])?.into_items();
             items.sort_by_key(|item| {
                 chrono::DateTime::parse_from_rfc2822(item.pub_date().unwrap_or_default())
@@ -193,11 +211,14 @@ impl Podcast {
                     .unwrap_or_default()
             });
 
-            Ok(items
-                .into_iter()
-                .enumerate()
-                .filter_map(|(index, item)| Episode::new(item, index))
-                .collect())
+            Ok((
+                channel,
+                items
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, item)| Episode::new(item, index))
+                    .collect(),
+            ))
         } else {
             Err(anyhow::anyhow!(
                 "Failed to download RSS feed: HTTP {}",
@@ -207,7 +228,7 @@ impl Podcast {
     }
 
     fn download_folder(&self) -> Result<PathBuf> {
-        let destination_folder = self.config.base_path().join(&self.name);
+        let destination_folder = self.config.download_path.join(&self.name);
         std::fs::create_dir_all(&destination_folder)?;
         Ok(destination_folder)
     }
@@ -217,40 +238,39 @@ impl Podcast {
             return false;
         };
 
-        if let DownloadMode::Backlog { start, interval } = self.config.mode() {
-            let days_passed = (current_unix() - start) / 86400;
-            let current_backlog_index = days_passed / interval;
-            if current_backlog_index < episode.index as i64 {
-                return false;
+        match &self.config.mode {
+            DownloadMode::Backlog { start, interval } => {
+                let days_passed = (current_unix() - start.as_secs() as i64) / 86400;
+                let current_backlog_index = days_passed / interval;
+
+                current_backlog_index >= episode.index as i64
+            }
+
+            DownloadMode::Standard {
+                max_days,
+                max_episodes,
+                earliest_date,
+            } => {
+                if max_days.is_some_and(|max_days| {
+                    (current_unix() - episode.published) > max_days as i64 * 86400
+                }) {
+                    false
+                } else if max_episodes.is_some_and(|max_episodes| {
+                    (latest_episode - max_episodes as usize) > episode.index
+                }) {
+                    false
+                } else if earliest_date.clone().is_some_and(|date| {
+                    chrono::DateTime::parse_from_rfc3339(&date)
+                        .unwrap()
+                        .timestamp()
+                        > episode.published
+                }) {
+                    false
+                } else {
+                    true
+                }
             }
         }
-
-        if self
-            .config
-            .max_days()
-            .is_some_and(|max_days| (current_unix() - episode.published) > max_days as i64 * 86400)
-        {
-            return false;
-        };
-
-        if self
-            .config
-            .max_episodes()
-            .is_some_and(|max_episodes| (latest_episode - max_episodes as usize) > episode.index)
-        {
-            return false;
-        };
-
-        if self.config.earliest_date().is_some_and(|date| {
-            chrono::DateTime::parse_from_rfc3339(date)
-                .unwrap()
-                .timestamp()
-                > episode.published
-        }) {
-            return false;
-        }
-
-        true
     }
 
     fn mark_downloaded(&self, episode: &Episode) -> Result<()> {
@@ -259,7 +279,7 @@ impl Podcast {
     }
 
     async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<usize> {
-        let mut episodes = self.load_episodes().await?;
+        let (channel, mut episodes) = self.load_episodes().await?;
         let episode_qty = episodes.len();
 
         episodes = episodes
@@ -269,7 +289,7 @@ impl Podcast {
 
         // In backlog mode it makes more sense to download earliest episode first.
         // in standard mode, the most recent episodes are seen as more relevant.
-        match self.config.mode() {
+        match self.config.mode {
             DownloadMode::Backlog { .. } => {
                 episodes.sort_by_key(|ep| ep.index);
             }
@@ -293,7 +313,7 @@ impl Podcast {
             };
 
             let msg = format!(
-                "{:<podcast_width$} {}/{} {}",
+                "{:<podcast_width$} {}/{} {} ",
                 &self.name,
                 index + 1,
                 episodes.len(),
@@ -306,21 +326,16 @@ impl Podcast {
 
             let file_path = episode.download(&download_folder, &pb).await?;
 
-            let mut tags = id3::Tag::read_from_path(&file_path)?;
-            for (id, value) in self.config.custom_tags() {
-                tags.set_text(id, value);
-            }
-
-            if tags.artist().is_none() {
-                if let Some(author) = episode._inner.author() {
-                    tags.set_artist(author);
-                }
-            }
-
-            tags.write_to_path(&file_path, id3::Version::Id3v24)?;
             self.mark_downloaded(&episode)?;
+            crate::tags::set_tags(
+                channel.clone(),
+                &episode,
+                &file_path,
+                &self.config.custom_tags,
+            )
+            .await?;
 
-            if let Some(script_path) = self.config.download_hook() {
+            if let Some(script_path) = &self.config.download_hook {
                 std::process::Command::new(script_path)
                     .arg(&file_path)
                     .output()?;
@@ -343,7 +358,7 @@ impl DownloadedEpisodes {
         self.0.contains_key(&episode.guid)
     }
 
-    fn load(name: &str, config: &CombinedConfig) -> Result<Self> {
+    fn load(name: &str, config: &Config) -> Result<Self> {
         let path = Self::file_path(config, name);
 
         let s = match std::fs::read_to_string(path) {
@@ -363,6 +378,7 @@ impl DownloadedEpisodes {
                 let timestamp = timestamp_str
                     .parse::<i64>()
                     .expect("Timestamp should be a valid i64");
+                let timestamp = std::time::Duration::from_secs(timestamp as u64);
 
                 hashmap.insert(id, timestamp);
             }
@@ -371,7 +387,7 @@ impl DownloadedEpisodes {
         Ok(Self(hashmap))
     }
 
-    fn append(name: &str, config: &CombinedConfig, episode: &Episode) -> Result<()> {
+    fn append(name: &str, config: &Config, episode: &Episode) -> Result<()> {
         let path = Self::file_path(config, name);
 
         let mut file = std::fs::OpenOptions::new()
@@ -389,7 +405,7 @@ impl DownloadedEpisodes {
         Ok(())
     }
 
-    fn file_path(config: &CombinedConfig, pod_name: &str) -> PathBuf {
-        config.base_path().join(pod_name).join(".downloaded")
+    fn file_path(config: &Config, pod_name: &str) -> PathBuf {
+        config.download_path.join(pod_name).join(".downloaded")
     }
 }

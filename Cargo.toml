@@ -22,4 +22,6 @@ futures = "0.3.30"
 serde_json = "1.0.115"
 unicode-width = "0.1.11"
 id3 = "1.13.1"
+clap = { version = "4.5.4", features = ["derive"] }
+opml = "1.1.6"
 

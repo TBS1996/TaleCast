@@ -34,7 +34,7 @@ impl<T: Clone> ConfigOption<T> {
 }
 
 fn default_name_pattern() -> String {
-    "{date} - {TIT2}".to_owned()
+    "{pubdate::%Y-%m-%d} {rss::episode::title}".to_string()
 }
 
 /// Configuration for a specific podcast.
@@ -50,7 +50,59 @@ pub struct Config {
 
 impl Config {
     pub fn new(global_config: &GlobalConfig, podcast_config: PodcastConfig) -> Self {
-        let mode = podcast_config.mode.into_download_mode(global_config);
+        let mode = match (
+            podcast_config.backlog_start,
+            podcast_config.backlog_interval,
+        ) {
+            (None, None) => DownloadMode::Standard {
+                max_days: podcast_config
+                    .max_days
+                    .into_val(global_config.max_days.as_ref()),
+                max_episodes: podcast_config
+                    .max_episodes
+                    .into_val(global_config.max_episodes.as_ref()),
+                earliest_date: podcast_config
+                    .earliest_date
+                    .into_val(global_config.earliest_date.as_ref()),
+            },
+            (Some(_), None) => {
+                eprintln!("missing backlog_interval");
+                std::process::exit(1);
+            }
+            (None, Some(_)) => {
+                eprintln!("missing backlog_start");
+                std::process::exit(1);
+            }
+            (Some(start), Some(interval)) => {
+                if podcast_config.max_days.is_enabled() {
+                    eprintln!("'max_days' not compatible with backlog mode.");
+                    std::process::exit(1);
+                }
+
+                if podcast_config.max_episodes.is_enabled() {
+                    eprintln!("'max_episodes' not compatible with backlog mode. Consider moving the start_date variable.");
+                    std::process::exit(1);
+                }
+
+                if podcast_config.earliest_date.is_enabled() {
+                    eprintln!("'earliest_date' not compatible with backlog mode.");
+                    std::process::exit(1);
+                }
+
+                let Ok(start) = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d") else {
+                    eprintln!("invalid backlog_start format. Use YYYY-MM-DD");
+                    std::process::exit(1);
+                };
+
+                let start = start.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+
+                DownloadMode::Backlog {
+                    start: std::time::Duration::from_secs(start as u64),
+                    interval,
+                }
+            }
+        };
+
         let custom_tags = {
             let mut map = HashMap::with_capacity(
                 global_config.custom_tags.len() + podcast_config.custom_tags.len(),
@@ -136,45 +188,6 @@ impl Default for GlobalConfig {
 }
 
 #[derive(Debug, Clone)]
-pub enum RawDownloadMode {
-    Standard {
-        max_days: ConfigOption<i64>,
-        earliest_date: ConfigOption<String>,
-        max_episodes: ConfigOption<i64>,
-    },
-    Backlog {
-        start: i64,
-        interval: i64,
-    },
-}
-
-impl RawDownloadMode {
-    fn into_download_mode(self, global_config: &GlobalConfig) -> DownloadMode {
-        match self {
-            Self::Backlog { start, interval } => DownloadMode::Backlog {
-                start: std::time::Duration::from_secs(start as u64),
-                interval,
-            },
-            Self::Standard {
-                earliest_date,
-                max_episodes,
-                max_days,
-            } => {
-                let earliest_date = earliest_date.into_val(global_config.earliest_date.as_ref());
-                let max_episodes = max_episodes.into_val(global_config.max_episodes.as_ref());
-                let max_days = max_days.into_val(global_config.max_days.as_ref());
-
-                DownloadMode::Standard {
-                    max_days,
-                    earliest_date,
-                    max_episodes,
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum DownloadMode {
     Standard {
         max_days: Option<i64>,
@@ -189,7 +202,7 @@ pub enum DownloadMode {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
-struct RawPodcastConfig {
+pub struct PodcastConfig {
     url: String,
     path: Option<PathBuf>,
     #[serde(default, deserialize_with = "deserialize_config_option_int")]
@@ -203,68 +216,6 @@ struct RawPodcastConfig {
     backlog_start: Option<String>,
     backlog_interval: Option<i64>,
     #[serde(default)]
-    custom_tags: HashMap<String, String>,
-}
-
-impl From<RawPodcastConfig> for PodcastConfig {
-    fn from(config: RawPodcastConfig) -> Self {
-        let mode = match (config.backlog_start, config.backlog_interval) {
-            (None, None) => RawDownloadMode::Standard {
-                max_days: config.max_days,
-                max_episodes: config.max_episodes,
-                earliest_date: config.earliest_date,
-            },
-            (Some(_), None) => {
-                eprintln!("missing backlog_interval");
-                std::process::exit(1);
-            }
-            (None, Some(_)) => {
-                eprintln!("missing backlog_start");
-                std::process::exit(1);
-            }
-            (Some(start), Some(interval)) => {
-                if config.max_days.is_enabled() {
-                    eprintln!("'max_days' not compatible with backlog mode.");
-                    std::process::exit(1);
-                }
-
-                if config.max_episodes.is_enabled() {
-                    eprintln!("'max_episodes' not compatible with backlog mode. Consider moving the start_date variable.");
-                    std::process::exit(1);
-                }
-
-                if config.earliest_date.is_enabled() {
-                    eprintln!("'earliest_date' not compatible with backlog mode.");
-                    std::process::exit(1);
-                }
-
-                let Ok(start) = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d") else {
-                    eprintln!("invalid backlog_start format. Use YYYY-MM-DD");
-                    std::process::exit(1);
-                };
-
-                let start = start.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
-                RawDownloadMode::Backlog { start, interval }
-            }
-        };
-
-        Self {
-            url: config.url,
-            path: config.path,
-            mode,
-            custom_tags: config.custom_tags,
-            download_hook: config.download_hook,
-        }
-    }
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(from = "RawPodcastConfig")]
-pub struct PodcastConfig {
-    url: String,
-    mode: RawDownloadMode,
-    path: Option<PathBuf>,
-    download_hook: ConfigOption<PathBuf>,
     custom_tags: HashMap<String, String>,
 }
 

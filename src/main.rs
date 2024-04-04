@@ -7,11 +7,13 @@ use futures_util::StreamExt;
 use id3::TagLike;
 use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
+use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use reqwest::Client;
 use std::collections::HashMap;
 use std::io::Write as IoWrite;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 mod config;
 mod opml;
@@ -28,6 +30,8 @@ struct Args {
     import: Option<PathBuf>,
     #[arg(short, long, value_name = "FILE")]
     export: Option<PathBuf>,
+    #[arg(short, long)]
+    print: bool,
 }
 
 #[tokio::main]
@@ -77,13 +81,20 @@ async fn main() -> Result<()> {
         futures.push(future);
     }
 
-    let mut episodes_downloaded = 0;
+    let mut paths = vec![];
     for future in futures {
-        episodes_downloaded += future.await??;
+        let path_vec = future.await??;
+        paths.extend(path_vec);
     }
 
     eprintln!("Syncing complete!");
-    eprintln!("{} episodes downloaded.", episodes_downloaded);
+    eprintln!("{} episodes downloaded.", paths.len());
+
+    if args.print {
+        for path in paths {
+            println!("\"{}\"", path.to_str().unwrap());
+        }
+    }
 
     Ok(())
 }
@@ -114,10 +125,11 @@ struct Episode {
     published: i64,
     index: usize,
     _inner: rss::Item,
+    _xml: Arc<String>,
 }
 
 impl Episode {
-    fn new(item: rss::Item, index: usize) -> Option<Self> {
+    fn new(item: rss::Item, index: usize, xml: Arc<String>) -> Option<Self> {
         Some(Self {
             title: item.title()?.to_owned(),
             url: item.enclosure()?.url().to_owned(),
@@ -127,6 +139,7 @@ impl Episode {
                 .timestamp(),
             index,
             _inner: item,
+            _xml: xml,
         })
     }
 
@@ -216,7 +229,10 @@ impl Podcast {
             .await?;
 
         if response.status().is_success() {
-            let data = response.bytes().await?;
+            let xml = response.text().await?;
+            let arced = Arc::new(xml.clone());
+
+            let data = xml.as_bytes();
 
             let channel = rss::Channel::read_from(&data[..])?;
             let mut items = rss::Channel::read_from(&data[..])?.into_items();
@@ -231,7 +247,7 @@ impl Podcast {
                 items
                     .into_iter()
                     .enumerate()
-                    .filter_map(|(index, item)| Episode::new(item, index))
+                    .filter_map(|(index, item)| Episode::new(item, index, arced.clone()))
                     .collect(),
             ))
         } else {
@@ -293,7 +309,7 @@ impl Podcast {
         Ok(())
     }
 
-    async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<usize> {
+    async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<Vec<PathBuf>> {
         let (channel, mut episodes) = self.load_episodes().await?;
         let episode_qty = episodes.len();
 
@@ -320,6 +336,7 @@ impl Podcast {
         );
 
         let download_folder = self.download_folder()?;
+        let mut file_paths = vec![];
         for (index, episode) in episodes.iter().enumerate() {
             let fitted_episode_title = {
                 let title_length = 30;
@@ -342,15 +359,22 @@ impl Podcast {
             let file_path = episode.download(&download_folder, &pb).await?;
 
             self.mark_downloaded(&episode)?;
-            let tags = crate::tags::set_tags(
-                channel.clone(),
-                &episode,
-                &file_path,
-                &self.config.custom_tags,
-            )
-            .await?;
 
-            rename_file(&file_path, &self.config, tags);
+            let mp3_tags = if file_path.extension().unwrap() == "mp3" {
+                let mp3_tags = crate::tags::set_mp3_tags(
+                    channel.clone(),
+                    &episode,
+                    &file_path,
+                    &self.config.custom_tags,
+                )
+                .await?;
+                Some(mp3_tags)
+            } else {
+                None
+            };
+
+            let file_path = rename_file(&file_path, &self.config, mp3_tags, episode);
+            file_paths.push(file_path.clone());
 
             if let Some(script_path) = &self.config.download_hook {
                 std::process::Command::new(script_path)
@@ -362,7 +386,7 @@ impl Podcast {
         pb.set_style(ProgressStyle::default_bar().template("{msg}")?);
         pb.finish_with_message(format!("✅ {}", &self.name));
 
-        Ok(episodes.len())
+        Ok(file_paths)
     }
 }
 
@@ -427,20 +451,15 @@ impl DownloadedEpisodes {
     }
 }
 
-fn rename_file(file: &Path, config: &Config, tags: id3::Tag) {
+fn rename_file(file: &Path, config: &Config, tags: Option<id3::Tag>, episode: &Episode) -> PathBuf {
     let text = config.name_pattern.clone();
     let re = regex::Regex::new(r"\{([^\}]+)\}").unwrap();
 
     let mut result = String::new();
     let mut last_end = 0;
 
-    let date = {
-        let mut date = tags.date_released().unwrap();
-        date.hour = None;
-        date.minute = None;
-        date.second = None;
-        date.to_string()
-    };
+    use chrono::TimeZone;
+    let datetime = chrono::Utc.timestamp_opt(episode.published, 0).unwrap();
 
     for cap in re.captures_iter(&text) {
         let match_range = cap.get(0).unwrap().range();
@@ -449,14 +468,43 @@ fn rename_file(file: &Path, config: &Config, tags: id3::Tag) {
         result.push_str(&text[last_end..match_range.start]);
 
         let replacement = match key {
-            "date" => date.clone(),
-            code if code.len() == 4 => tags
-                .get(code)
-                .map(|x| x.content())
-                .map(|c| c.to_string())
-                .unwrap_or(format!("{{{}}}", code)),
+            date if date.starts_with("pubdate::") => {
+                let (_, format) = date.split_once("::").unwrap();
+                datetime.format(format).to_string()
+            }
+            id3 if id3.starts_with("id3::") => {
+                let (_, tag) = id3.split_once(":").unwrap();
+                if let Some(ref tags) = tags {
+                    tags.get(tag)
+                        .map(|x| x.content())
+                        .map(|c| c.to_string())
+                        .unwrap_or(format!("<<invalid id3 tag>>"))
+                } else {
+                    String::new()
+                }
+            }
+            rss if rss.starts_with("rss::episode::") => {
+                let (_, key) = rss.split_once("episode::").unwrap();
+                let xml = &episode._xml;
+                let value = get_episode_xml(&episode.guid, xml);
+                value.get(key).unwrap().as_str().unwrap().to_owned()
+            }
+            rss if rss.starts_with("rss::channel::") => {
+                let (_, key) = rss.split_once("channel::").unwrap();
+                let xml = &episode._xml;
 
-            _ => "unknown".to_string(),
+                let conf = XmlConfig::new_with_defaults();
+                let json = xml_string_to_json(xml.to_string(), &conf).unwrap();
+                json.get("rss")
+                    .unwrap()
+                    .get("channel")
+                    .unwrap()
+                    .get(key)
+                    .unwrap()
+                    .to_string()
+            }
+
+            _ => "<<unknown tag>>".to_string(),
         };
 
         result.push_str(&replacement);
@@ -475,15 +523,38 @@ fn rename_file(file: &Path, config: &Config, tags: id3::Tag) {
         None => file.with_file_name(result),
     };
 
-    std::fs::rename(file, new_name).unwrap();
+    std::fs::rename(file, &new_name).unwrap();
+    new_name
+}
+
+fn get_episode_xml(id: &str, xml: &str) -> serde_json::Value {
+    let conf = XmlConfig::new_with_defaults();
+    let json = xml_string_to_json(xml.to_owned(), &conf).unwrap();
+
+    let rss = json.get("rss").unwrap();
+    let channel = rss.get("channel").unwrap();
+    let items = channel.get("item").unwrap().as_array().unwrap();
+
+    for item in items {
+        if &item
+            .get("guid")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("#text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            == &id
+        {
+            return item.clone();
+        }
+    }
+
+    panic!("ep not found lol");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_rename() {
-        //rename_file();
-    }
 }

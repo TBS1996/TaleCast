@@ -58,7 +58,7 @@ fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
     false
 }
 
-pub async fn set_tags<'a>(
+pub async fn set_mp3_tags<'a>(
     channel: rss::Channel,
     episode: &Episode,
     file_path: &std::path::Path,

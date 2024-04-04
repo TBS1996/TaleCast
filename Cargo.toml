@@ -26,4 +26,6 @@ clap = { version = "4.5.4", features = ["derive"] }
 opml = "1.1.6"
 regex = "1.10.4"
 mime_guess = "2.0.4"
+quick-xml = "0.31.0"
+quickxml_to_serde = "0.6.0"
 

@@ -23,6 +23,8 @@ mod utils;
 pub type Unix = std::time::Duration;
 pub const APPNAME: &'static str = "cringecast";
 
+const XML_REPLACEMENT: &'static str = "__||__";
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -157,14 +159,13 @@ impl Episode {
 
         let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
 
-        let ext = if extensions.contains(&"mp3") {
-            "mp3"
-        } else {
-            extensions.first().unwrap()
+        let ext = match extensions.contains(&"mp3") {
+            true => "mp3",
+            false => extensions.first().expect("extension not found."),
         };
 
         let path = {
-            let file_name = self.title.replace(" ", "_") + "." + ext;
+            let file_name = self.guid.clone() + "." + ext;
             folder.join(file_name)
         };
 
@@ -230,7 +231,9 @@ impl Podcast {
 
         if response.status().is_success() {
             let xml = response.text().await?;
-            let arced = Arc::new(xml.clone());
+            let re = regex::Regex::new(r"(<\/?[\w-]+):([\w-]+)").unwrap();
+            let xml = re.replace_all(&xml, format!("$1{}$2", XML_REPLACEMENT).as_str());
+            let arced = Arc::new(xml.to_string());
 
             let data = xml.as_bytes();
 
@@ -473,7 +476,7 @@ fn rename_file(file: &Path, config: &Config, tags: Option<id3::Tag>, episode: &E
                 datetime.format(format).to_string()
             }
             id3 if id3.starts_with("id3::") => {
-                let (_, tag) = id3.split_once(":").unwrap();
+                let (_, tag) = id3.split_once("::").unwrap();
                 if let Some(ref tags) = tags {
                     tags.get(tag)
                         .map(|x| x.content())
@@ -485,6 +488,7 @@ fn rename_file(file: &Path, config: &Config, tags: Option<id3::Tag>, episode: &E
             }
             rss if rss.starts_with("rss::episode::") => {
                 let (_, key) = rss.split_once("episode::").unwrap();
+                let key = key.replace(":", XML_REPLACEMENT);
                 let xml = &episode._xml;
                 let value = get_episode_xml(&episode.guid, xml);
                 value.get(key).unwrap().as_str().unwrap().to_owned()
@@ -492,6 +496,10 @@ fn rename_file(file: &Path, config: &Config, tags: Option<id3::Tag>, episode: &E
             rss if rss.starts_with("rss::channel::") => {
                 let (_, key) = rss.split_once("channel::").unwrap();
                 let xml = &episode._xml;
+
+                // hack: quickxml_to_serde will merge namespaces, so I do this to avoid confusing
+                // itunes tags with other ones.
+                let key = key.replace(":", XML_REPLACEMENT);
 
                 let conf = XmlConfig::new_with_defaults();
                 let json = xml_string_to_json(xml.to_string(), &conf).unwrap();
@@ -556,5 +564,5 @@ fn get_episode_xml(id: &str, xml: &str) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    //use super::*;
 }

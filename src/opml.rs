@@ -10,9 +10,9 @@ struct BasicPodcast {
     url: String,
 }
 
-pub fn export(p: &Path) -> Result<()> {
+pub async fn export(p: &Path) -> Result<()> {
     let global_config = crate::GlobalConfig::load()?;
-    let podcasts = crate::Podcast::load_all(&global_config)?;
+    let podcasts = crate::Podcast::load_all(&global_config).await?;
 
     let mut opml = OPML {
         head: Some(Head {

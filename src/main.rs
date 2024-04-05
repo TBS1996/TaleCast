@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
     }
 
     if let Some(path) = args.export {
-        crate::opml::export(&path)?;
+        crate::opml::export(&path).await?;
     }
 
     if !should_sync {
@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
 
     let podcasts = {
         let global_config = GlobalConfig::load()?;
-        let mut podcasts = Podcast::load_all(&global_config)?;
+        let mut podcasts = Podcast::load_all(&global_config).await?;
         podcasts.sort_by_key(|pod| pod.name.clone());
         podcasts
     };
@@ -209,12 +209,53 @@ impl<'a> Episode<'a> {
     }
 }
 
-pub struct Channel {
-    pub inner: rss::Channel,
-    pub xml: serde_json::Value,
+fn xml_to_value(xml: &str) -> Value {
+    let xml = modify_xml_tags(&xml, NAMESPACE_ALTER);
+    let conf = XmlConfig::new_with_defaults();
+    xml_string_to_json(xml, &conf).unwrap()
 }
 
-impl Channel {
+#[derive(Debug)]
+struct Podcast {
+    name: String,
+    channel: rss::Channel,
+    xml: serde_json::Value,
+    config: Config,
+    downloaded: DownloadedEpisodes,
+}
+
+impl Podcast {
+    async fn load_all(global_config: &GlobalConfig) -> Result<Vec<Self>> {
+        let configs: HashMap<String, PodcastConfig> = {
+            let path = crate::utils::podcasts_toml()?;
+            if !path.exists() {
+                eprintln!("You need to create a 'podcasts.toml' file to get started");
+                std::process::exit(1);
+            }
+            let config_str = std::fs::read_to_string(path)?;
+            toml::from_str(&config_str)?
+        };
+
+        let mut podcasts = vec![];
+        for (name, config) in configs {
+            let config = Config::new(&global_config, config);
+            let downloaded = DownloadedEpisodes::load(&name, &config)?;
+            let xml_string = Self::load_xml(&config.url).await?;
+            let channel = rss::Channel::read_from(xml_string.as_bytes())?;
+            let xml_value = xml_to_value(&xml_string);
+
+            podcasts.push(Self {
+                name,
+                channel,
+                xml: xml_value,
+                config,
+                downloaded,
+            });
+        }
+
+        Ok(podcasts)
+    }
+
     fn get_text_attribute(&self, key: &str) -> Option<&str> {
         let rss = self.xml.get("rss").unwrap();
         let channel = rss.get("channel").unwrap();
@@ -240,7 +281,7 @@ impl Channel {
             map.insert(guid, item);
         }
 
-        for item in self.inner.items() {
+        for item in self.channel.items() {
             let Some(guid) = item.guid() else { continue };
             let obj = map.get(guid.value()).unwrap();
 
@@ -261,45 +302,97 @@ impl Channel {
 
         vec
     }
-}
 
-#[derive(Debug)]
-struct Podcast {
-    name: String,
-    config: Config,
-    downloaded: DownloadedEpisodes,
-}
+    fn rename_file(&self, file: &Path, tags: Option<&id3::Tag>, episode: &Episode) -> PathBuf {
+        let pattern = &self.config.name_pattern;
+        let result = self.evaluate_pattern(pattern, tags, episode);
 
-impl Podcast {
-    fn load_all(global_config: &GlobalConfig) -> Result<Vec<Self>> {
-        let configs: HashMap<String, PodcastConfig> = {
-            let path = crate::utils::podcasts_toml()?;
-            if !path.exists() {
-                eprintln!("You need to create a 'podcasts.toml' file to get started");
-                std::process::exit(1);
+        let new_name = match file.extension() {
+            Some(extension) => {
+                let mut new_path = file.with_file_name(result);
+                new_path.set_extension(extension);
+                new_path
             }
-            let config_str = std::fs::read_to_string(path)?;
-            toml::from_str(&config_str)?
+            None => file.with_file_name(result),
         };
 
-        let mut podcasts = vec![];
-        for (name, config) in configs {
-            let config = Config::new(&global_config, config);
-            let downloaded = DownloadedEpisodes::load(&name, &config)?;
-
-            podcasts.push(Self {
-                name,
-                config,
-                downloaded,
-            });
-        }
-
-        Ok(podcasts)
+        std::fs::rename(file, &new_name).unwrap();
+        new_name
     }
 
-    async fn load_channel(&self) -> Result<Channel> {
+    fn evaluate_pattern(
+        &self,
+        pattern: &str,
+        tags: Option<&id3::Tag>,
+        episode: &Episode,
+    ) -> String {
+        let null = "<value not found>";
+        let re = regex::Regex::new(r"\{([^\}]+)\}").unwrap();
+
+        let mut result = String::new();
+        let mut last_end = 0;
+
+        use chrono::TimeZone;
+        let datetime = chrono::Utc.timestamp_opt(episode.published, 0).unwrap();
+
+        for cap in re.captures_iter(&pattern) {
+            let match_range = cap.get(0).unwrap().range();
+            let key = &cap[1];
+
+            result.push_str(&pattern[last_end..match_range.start]);
+
+            let replacement = match key {
+                date if date.starts_with("pubdate::") => {
+                    let (_, format) = date.split_once("::").unwrap();
+                    if format == "unix" {
+                        episode.published.to_string()
+                    } else {
+                        datetime.format(format).to_string()
+                    }
+                }
+                id3 if id3.starts_with("id3::") && tags.is_some() => {
+                    let (_, tag) = id3.split_once("::").unwrap();
+                    tags.unwrap()
+                        .get(tag)
+                        .and_then(|tag| tag.content().text())
+                        .unwrap_or(null)
+                        .to_string()
+                }
+                rss if rss.starts_with("rss::episode::") => {
+                    let (_, key) = rss.split_once("episode::").unwrap();
+                    let key = key.replace(":", NAMESPACE_ALTER);
+                    episode.get_text_value(&key).unwrap_or(null).to_string()
+                }
+                rss if rss.starts_with("rss::channel::") => {
+                    let (_, key) = rss.split_once("channel::").unwrap();
+
+                    // hack: quickxml_to_serde will merge namespaces, so I do this to avoid confusing
+                    // itunes tags with other ones.
+                    let key = key.replace(":", NAMESPACE_ALTER);
+                    self.get_text_attribute(&key).unwrap_or(null).to_string()
+                }
+
+                "guid" => episode.guid.to_string(),
+                "url" => episode.url.to_string(),
+
+                invalid_tag => {
+                    eprintln!("invalid tag configured: {}", invalid_tag);
+                    std::process::exit(1);
+                }
+            };
+
+            result.push_str(&replacement);
+
+            last_end = match_range.end;
+        }
+
+        result.push_str(&pattern[last_end..]);
+        result
+    }
+
+    async fn load_xml(url: &str) -> Result<String> {
         let response = reqwest::Client::new()
-            .get(&self.config.url)
+            .get(url)
             .header(
                 "User-Agent",
                 "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
@@ -308,21 +401,9 @@ impl Podcast {
             .await?;
 
         if response.status().is_success() {
-            let xml_text = response.text().await?;
-            let channel = rss::Channel::read_from(xml_text.as_bytes())?;
+            let xml = response.text().await?;
 
-            let xml_value = {
-                let xml = modify_xml_tags(&xml_text, NAMESPACE_ALTER);
-                let conf = XmlConfig::new_with_defaults();
-                xml_string_to_json(xml, &conf).unwrap()
-            };
-
-            let channel = Channel {
-                inner: channel,
-                xml: xml_value,
-            };
-
-            Ok(channel)
+            Ok(xml)
         } else {
             Err(anyhow::anyhow!(
                 "Failed to download RSS feed: HTTP {}",
@@ -338,7 +419,7 @@ impl Podcast {
     }
 
     fn should_download(&self, episode: &Episode, latest_episode: usize) -> bool {
-        if self.downloaded.contains_episode(episode) {
+        if self.is_downloaded(episode) {
             return false;
         };
 
@@ -355,42 +436,57 @@ impl Podcast {
                 max_episodes,
                 earliest_date,
             } => {
-                if max_days.is_some_and(|max_days| {
+                let max_days_exceeded = max_days.is_some_and(|max_days| {
                     (current_unix() - episode.published) > max_days as i64 * 86400
-                }) {
-                    false
-                } else if max_episodes.is_some_and(|max_episodes| {
+                });
+
+                if max_days_exceeded {
+                    return false;
+                }
+
+                let max_episodes_exceeded = max_episodes.is_some_and(|max_episodes| {
                     (latest_episode - max_episodes as usize) > episode.index
-                }) {
-                    false
-                } else if earliest_date.clone().is_some_and(|date| {
+                });
+
+                if max_episodes_exceeded {
+                    return false;
+                }
+
+                let episode_too_old = earliest_date.as_ref().is_some_and(|date| {
                     chrono::DateTime::parse_from_rfc3339(&date)
                         .unwrap()
                         .timestamp()
                         > episode.published
-                }) {
-                    false
-                } else {
-                    true
+                });
+
+                if episode_too_old {
+                    return false;
                 }
+
+                true
             }
         }
     }
 
-    fn mark_downloaded(
-        &self,
-        tags: Option<&id3::Tag>,
-        episode: &Episode,
-        channel: &Channel,
-    ) -> Result<()> {
-        let id = evaluate_pattern(&self.config.id_pattern, tags, episode, channel);
+    fn mark_downloaded(&self, episode: &Episode) -> Result<()> {
+        let id = self.get_id(episode);
         DownloadedEpisodes::append(&self.name, &id, &self.config, &episode)?;
         Ok(())
     }
 
+    fn get_id(&self, episode: &Episode) -> String {
+        let id_pattern = &self.config.id_pattern;
+        self.evaluate_pattern(id_pattern, None, episode)
+            .replace(" ", "_")
+    }
+
+    fn is_downloaded(&self, episode: &Episode) -> bool {
+        let id = self.get_id(episode);
+        self.downloaded.0.contains_key(&id)
+    }
+
     async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<Vec<PathBuf>> {
-        let channel = self.load_channel().await?;
-        let mut episodes = channel.episodes();
+        let mut episodes = self.episodes();
         let episode_qty = episodes.len();
 
         episodes = episodes
@@ -440,19 +536,18 @@ impl Podcast {
             let file_path = episode.download(&download_folder, &pb).await?;
 
             let mp3_tags = (file_path.extension().unwrap() == "mp3").then_some(
-                crate::tags::set_mp3_tags(&channel, &episode, &file_path, &self.config.id3_tags)
-                    .await?,
+                crate::tags::set_mp3_tags(
+                    &self.channel,
+                    &episode,
+                    &file_path,
+                    &self.config.id3_tags,
+                )
+                .await?,
             );
 
-            let file_path = rename_file(
-                &file_path,
-                &self.config,
-                mp3_tags.as_ref(),
-                episode,
-                &channel,
-            );
+            let file_path = self.rename_file(&file_path, mp3_tags.as_ref(), episode);
 
-            self.mark_downloaded(mp3_tags.as_ref(), episode, &channel)?;
+            self.mark_downloaded(episode)?;
             file_paths.push(file_path.clone());
 
             if let Some(script_path) = self.config.download_hook.clone() {
@@ -485,10 +580,6 @@ impl Podcast {
 struct DownloadedEpisodes(HashMap<String, Unix>);
 
 impl DownloadedEpisodes {
-    fn contains_episode(&self, episode: &Episode) -> bool {
-        self.0.contains_key(episode.guid)
-    }
-
     fn load(name: &str, config: &Config) -> Result<Self> {
         let path = Self::file_path(config, name);
 
@@ -533,100 +624,6 @@ impl DownloadedEpisodes {
     fn file_path(config: &Config, pod_name: &str) -> PathBuf {
         config.download_path.join(pod_name).join(".downloaded")
     }
-}
-
-fn evaluate_pattern(
-    pattern: &str,
-    tags: Option<&id3::Tag>,
-    episode: &Episode,
-    channel: &Channel,
-) -> String {
-    let null = "<value not found>";
-    let re = regex::Regex::new(r"\{([^\}]+)\}").unwrap();
-
-    let mut result = String::new();
-    let mut last_end = 0;
-
-    use chrono::TimeZone;
-    let datetime = chrono::Utc.timestamp_opt(episode.published, 0).unwrap();
-
-    for cap in re.captures_iter(&pattern) {
-        let match_range = cap.get(0).unwrap().range();
-        let key = &cap[1];
-
-        result.push_str(&pattern[last_end..match_range.start]);
-
-        let replacement = match key {
-            date if date.starts_with("pubdate::") => {
-                let (_, format) = date.split_once("::").unwrap();
-                if date == "unix" {
-                    episode.published.to_string()
-                } else {
-                    datetime.format(format).to_string()
-                }
-            }
-            id3 if id3.starts_with("id3::") && tags.is_some() => {
-                let (_, tag) = id3.split_once("::").unwrap();
-                tags.unwrap()
-                    .get(tag)
-                    .and_then(|tag| tag.content().text())
-                    .unwrap_or(null)
-                    .to_string()
-            }
-            rss if rss.starts_with("rss::episode::") => {
-                let (_, key) = rss.split_once("episode::").unwrap();
-                let key = key.replace(":", NAMESPACE_ALTER);
-                episode.get_text_value(&key).unwrap_or(null).to_string()
-            }
-            rss if rss.starts_with("rss::channel::") => {
-                let (_, key) = rss.split_once("channel::").unwrap();
-
-                // hack: quickxml_to_serde will merge namespaces, so I do this to avoid confusing
-                // itunes tags with other ones.
-                let key = key.replace(":", NAMESPACE_ALTER);
-                channel.get_text_attribute(&key).unwrap_or(null).to_string()
-            }
-
-            "guid" => episode.guid.to_string(),
-            "url" => episode.url.to_string(),
-            "pubunix" => episode.published.to_string(),
-
-            invalid_tag => {
-                eprintln!("invalid tag configured: {}", invalid_tag);
-                std::process::exit(1);
-            }
-        };
-
-        result.push_str(&replacement);
-
-        last_end = match_range.end;
-    }
-
-    result.push_str(&pattern[last_end..]);
-    result
-}
-
-fn rename_file(
-    file: &Path,
-    config: &Config,
-    tags: Option<&id3::Tag>,
-    episode: &Episode,
-    channel: &Channel,
-) -> PathBuf {
-    let pattern = &config.name_pattern;
-    let result = evaluate_pattern(pattern, tags, episode, channel);
-
-    let new_name = match file.extension() {
-        Some(extension) => {
-            let mut new_path = file.with_file_name(result);
-            new_path.set_extension(extension);
-            new_path
-        }
-        None => file.with_file_name(result),
-    };
-
-    std::fs::rename(file, &new_name).unwrap();
-    new_name
 }
 
 fn get_guid(item: &serde_json::Map<String, Value>) -> &str {

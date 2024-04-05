@@ -1,4 +1,3 @@
-use crate::Channel;
 use crate::Episode;
 use anyhow::Result;
 use chrono::Datelike;
@@ -60,7 +59,7 @@ fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
 }
 
 pub async fn set_mp3_tags<'a>(
-    channel: &'a Channel,
+    channel: &'a rss::Channel,
     episode: &'a Episode<'_>,
     file_path: &std::path::Path,
     custom_tags: &HashMap<String, String>,
@@ -81,7 +80,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.album().is_none() {
-        tags.set_album(channel.inner.title());
+        tags.set_album(channel.title());
     }
 
     if tags.genre().is_none() {
@@ -128,7 +127,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::PODCASTCATEGORY).is_none() {
-        if let Some(itunes) = channel.inner.itunes_ext() {
+        if let Some(itunes) = channel.itunes_ext() {
             let mut strs = vec![];
             for cat in itunes.categories() {
                 strs.push(&cat.text);
@@ -156,7 +155,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::LANGUAGE).is_none() {
-        if let Some(language) = channel.inner.language() {
+        if let Some(language) = channel.language() {
             tags.set_text(Id3Tag::LANGUAGE, language);
         }
     }
@@ -173,7 +172,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::PUBLISHER).is_none() {
-        if let Some(itunes) = channel.inner.itunes_ext() {
+        if let Some(itunes) = channel.itunes_ext() {
             if let Some(author) = itunes.author() {
                 tags.set_text(Id3Tag::PUBLISHER, author);
             }

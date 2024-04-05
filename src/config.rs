@@ -37,11 +37,16 @@ fn default_name_pattern() -> String {
     "{pubdate::%Y-%m-%d} {rss::episode::title}".to_string()
 }
 
+fn default_id_pattern() -> String {
+    "{guid}".to_string()
+}
+
 /// Configuration for a specific podcast.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub url: String,
     pub name_pattern: String,
+    pub id_pattern: String,
     pub download_path: PathBuf,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
@@ -126,9 +131,22 @@ impl Config {
             .path
             .unwrap_or_else(|| global_config.path.clone());
 
+        let name_pattern = podcast_config
+            .name_pattern
+            .into_val(Some(&global_config.name_pattern))
+            .unwrap();
+
+        let id_pattern = podcast_config
+            .id_pattern
+            .into_val(global_config.id_pattern.as_ref())
+            .unwrap_or_else(|| default_id_pattern());
+
+        let url = podcast_config.url;
+
         Self {
-            url: podcast_config.url,
-            name_pattern: global_config.name_pattern.clone(),
+            url,
+            name_pattern,
+            id_pattern,
             mode,
             id3_tags,
             download_hook,
@@ -142,6 +160,7 @@ impl Config {
 pub struct GlobalConfig {
     #[serde(default = "default_name_pattern")]
     name_pattern: String,
+    id_pattern: Option<String>,
     max_days: Option<i64>,
     max_episodes: Option<i64>,
     path: PathBuf,
@@ -171,7 +190,8 @@ impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
             name_pattern: default_name_pattern(),
-            max_days: Some(120),
+            id_pattern: None,
+            max_days: None,
             max_episodes: Some(10),
             path: {
                 let Some(home) = dirs::home_dir() else {
@@ -217,6 +237,10 @@ pub struct PodcastConfig {
     backlog_interval: Option<i64>,
     #[serde(default)]
     id3_tags: HashMap<String, String>,
+    #[serde(default, deserialize_with = "deserialize_config_option_string")]
+    name_pattern: ConfigOption<String>,
+    #[serde(default, deserialize_with = "deserialize_config_option_string")]
+    id_pattern: ConfigOption<String>,
 }
 
 fn deserialize_config_option_int<'de, D>(deserializer: D) -> Result<ConfigOption<i64>, D::Error>

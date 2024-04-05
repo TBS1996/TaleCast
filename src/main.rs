@@ -49,9 +49,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.tutorial {
-        let help = std::fs::read_to_string(PathBuf::from("./help_file.md"))
-            .expect("unable to open help file.");
-        print!("{}", help);
+        print!("{}", crate::utils::tutorial());
         return Ok(());
     };
     let should_sync = args.import.is_none() && args.export.is_none();
@@ -379,8 +377,14 @@ impl Podcast {
         }
     }
 
-    fn mark_downloaded(&self, episode: &Episode) -> Result<()> {
-        DownloadedEpisodes::append(&self.name, &self.config, &episode)?;
+    fn mark_downloaded(
+        &self,
+        tags: Option<&id3::Tag>,
+        episode: &Episode,
+        channel: &Channel,
+    ) -> Result<()> {
+        let id = evaluate_pattern(&self.config.id_pattern, tags, episode, channel);
+        DownloadedEpisodes::append(&self.name, &id, &self.config, &episode)?;
         Ok(())
     }
 
@@ -448,7 +452,7 @@ impl Podcast {
                 &channel,
             );
 
-            self.mark_downloaded(&episode)?;
+            self.mark_downloaded(mp3_tags.as_ref(), episode, &channel)?;
             file_paths.push(file_path.clone());
 
             if let Some(script_path) = self.config.download_hook.clone() {
@@ -514,7 +518,7 @@ impl DownloadedEpisodes {
         Ok(Self(hashmap))
     }
 
-    fn append(name: &str, config: &Config, episode: &Episode) -> Result<()> {
+    fn append(name: &str, id: &str, config: &Config, episode: &Episode) -> Result<()> {
         let path = Self::file_path(config, name);
 
         let mut file = std::fs::OpenOptions::new()
@@ -522,13 +526,7 @@ impl DownloadedEpisodes {
             .create(true)
             .open(path)?;
 
-        writeln!(
-            file,
-            "{} {} \"{}\"",
-            &episode.guid,
-            current_unix(),
-            &episode.title
-        )?;
+        writeln!(file, "{} {} \"{}\"", id, current_unix(), &episode.title)?;
         Ok(())
     }
 
@@ -537,15 +535,13 @@ impl DownloadedEpisodes {
     }
 }
 
-fn rename_file(
-    file: &Path,
-    config: &Config,
+fn evaluate_pattern(
+    pattern: &str,
     tags: Option<&id3::Tag>,
     episode: &Episode,
     channel: &Channel,
-) -> PathBuf {
+) -> String {
     let null = "<value not found>";
-    let text = config.name_pattern.clone();
     let re = regex::Regex::new(r"\{([^\}]+)\}").unwrap();
 
     let mut result = String::new();
@@ -554,16 +550,20 @@ fn rename_file(
     use chrono::TimeZone;
     let datetime = chrono::Utc.timestamp_opt(episode.published, 0).unwrap();
 
-    for cap in re.captures_iter(&text) {
+    for cap in re.captures_iter(&pattern) {
         let match_range = cap.get(0).unwrap().range();
         let key = &cap[1];
 
-        result.push_str(&text[last_end..match_range.start]);
+        result.push_str(&pattern[last_end..match_range.start]);
 
         let replacement = match key {
             date if date.starts_with("pubdate::") => {
                 let (_, format) = date.split_once("::").unwrap();
-                datetime.format(format).to_string()
+                if date == "unix" {
+                    episode.published.to_string()
+                } else {
+                    datetime.format(format).to_string()
+                }
             }
             id3 if id3.starts_with("id3::") && tags.is_some() => {
                 let (_, tag) = id3.split_once("::").unwrap();
@@ -587,6 +587,10 @@ fn rename_file(
                 channel.get_text_attribute(&key).unwrap_or(null).to_string()
             }
 
+            "guid" => episode.guid.to_string(),
+            "url" => episode.url.to_string(),
+            "pubunix" => episode.published.to_string(),
+
             invalid_tag => {
                 eprintln!("invalid tag configured: {}", invalid_tag);
                 std::process::exit(1);
@@ -598,7 +602,19 @@ fn rename_file(
         last_end = match_range.end;
     }
 
-    result.push_str(&text[last_end..]);
+    result.push_str(&pattern[last_end..]);
+    result
+}
+
+fn rename_file(
+    file: &Path,
+    config: &Config,
+    tags: Option<&id3::Tag>,
+    episode: &Episode,
+    channel: &Channel,
+) -> PathBuf {
+    let pattern = &config.name_pattern;
+    let result = evaluate_pattern(pattern, tags, episode, channel);
 
     let new_name = match file.extension() {
         Some(extension) => {

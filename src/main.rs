@@ -7,10 +7,16 @@ use futures_util::StreamExt;
 use id3::TagLike;
 use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
+use quick_xml::{
+    events::{BytesEnd, BytesStart, Event},
+    Reader, Writer,
+};
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use reqwest::Client;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::io::Write as IoWrite;
 use std::path::Path;
 use std::path::PathBuf;
@@ -23,10 +29,7 @@ mod utils;
 pub type Unix = std::time::Duration;
 pub const APPNAME: &'static str = "cringecast";
 
-// Bit of a hack, i use `quickxml_to_serde` to convert from an XML file to a serde_json::Value,
-// the problem is that it will merge tags with different namespaces, which is not what I want.
-// Therefore i replace all the relevant colons with this text to avoid that.
-const XML_REPLACEMENT: &'static str = "__|@@@|__";
+const NAMESPACE_ALTER: &'static str = "__placeholder__";
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -37,21 +40,20 @@ struct Args {
     export: Option<PathBuf>,
     #[arg(short, long)]
     print: bool,
-    #[arg(short, long)]
-    help: bool,
+    #[arg(long)]
+    tutorial: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    if args.help {
+    if args.tutorial {
         let help = std::fs::read_to_string(PathBuf::from("./help_file.md"))
             .expect("unable to open help file.");
         print!("{}", help);
         return Ok(());
     };
-
     let should_sync = args.import.is_none() && args.export.is_none();
 
     if let Some(path) = args.import {
@@ -228,7 +230,11 @@ impl Channel {
 
         let rss = self.xml.get("rss").unwrap();
         let channel = rss.get("channel").unwrap();
-        let raw_items = channel.get("item").unwrap().as_array().unwrap();
+        let raw_items = channel
+            .get("item")
+            .expect("items not found?")
+            .as_array()
+            .unwrap();
 
         for item in raw_items {
             let item = item.as_object().unwrap();
@@ -308,10 +314,9 @@ impl Podcast {
             let channel = rss::Channel::read_from(xml_text.as_bytes())?;
 
             let xml_value = {
-                let re = regex::Regex::new(r"(<\/?[\w-]+):([\w-]+)").unwrap();
-                let xml = re.replace_all(&xml_text, format!("$1{}$2", XML_REPLACEMENT).as_str());
+                let xml = modify_xml_tags(&xml_text, NAMESPACE_ALTER);
                 let conf = XmlConfig::new_with_defaults();
-                xml_string_to_json(xml.to_string(), &conf).unwrap()
+                xml_string_to_json(xml, &conf).unwrap()
             };
 
             let channel = Channel {
@@ -408,6 +413,7 @@ impl Podcast {
 
         let download_folder = self.download_folder()?;
         let mut file_paths = vec![];
+        let mut hook_handles = vec![];
         for (index, episode) in episodes.iter().enumerate() {
             let fitted_episode_title = {
                 let title_length = 30;
@@ -429,20 +435,10 @@ impl Podcast {
 
             let file_path = episode.download(&download_folder, &pb).await?;
 
-            self.mark_downloaded(&episode)?;
-
-            let mp3_tags = if file_path.extension().unwrap() == "mp3" {
-                let mp3_tags = crate::tags::set_mp3_tags(
-                    &channel,
-                    &episode,
-                    &file_path,
-                    &self.config.id3_tags,
-                )
-                .await?;
-                Some(mp3_tags)
-            } else {
-                None
-            };
+            let mp3_tags = (file_path.extension().unwrap() == "mp3").then_some(
+                crate::tags::set_mp3_tags(&channel, &episode, &file_path, &self.config.id3_tags)
+                    .await?,
+            );
 
             let file_path = rename_file(
                 &file_path,
@@ -451,13 +447,26 @@ impl Podcast {
                 episode,
                 &channel,
             );
+
+            self.mark_downloaded(&episode)?;
             file_paths.push(file_path.clone());
 
-            if let Some(script_path) = &self.config.download_hook {
-                std::process::Command::new(script_path)
-                    .arg(&file_path)
-                    .output()?;
+            if let Some(script_path) = self.config.download_hook.clone() {
+                let handle = tokio::task::spawn_blocking(move || {
+                    std::process::Command::new(script_path)
+                        .arg(&file_path)
+                        .output()
+                });
+                hook_handles.push(handle);
             }
+        }
+
+        if !hook_handles.is_empty() {
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} finishing up download hooks...")?,
+            );
+            futures::future::join_all(hook_handles).await;
         }
 
         pb.set_style(ProgressStyle::default_bar().template("{msg}")?);
@@ -566,7 +575,7 @@ fn rename_file(
             }
             rss if rss.starts_with("rss::episode::") => {
                 let (_, key) = rss.split_once("episode::").unwrap();
-                let key = key.replace(":", XML_REPLACEMENT);
+                let key = key.replace(":", NAMESPACE_ALTER);
                 episode.get_text_value(&key).unwrap_or(null).to_string()
             }
             rss if rss.starts_with("rss::channel::") => {
@@ -574,7 +583,7 @@ fn rename_file(
 
                 // hack: quickxml_to_serde will merge namespaces, so I do this to avoid confusing
                 // itunes tags with other ones.
-                let key = key.replace(":", XML_REPLACEMENT);
+                let key = key.replace(":", NAMESPACE_ALTER);
                 channel.get_text_attribute(&key).unwrap_or(null).to_string()
             }
 
@@ -605,8 +614,12 @@ fn rename_file(
 }
 
 fn get_guid(item: &serde_json::Map<String, Value>) -> &str {
-    item.get("guid")
-        .unwrap()
+    let guid_obj = item.get("guid").unwrap();
+    if let Some(guid) = guid_obj.as_str() {
+        return guid;
+    }
+
+    guid_obj
         .as_object()
         .unwrap()
         .get("#text")
@@ -615,7 +628,70 @@ fn get_guid(item: &serde_json::Map<String, Value>) -> &str {
         .unwrap()
 }
 
+fn modify_name<'a>(original_name: &'a [u8], replacement: &'a str) -> Cow<'a, [u8]> {
+    if let Some(pos) = original_name.iter().position(|&b| b == b':') {
+        let mut new_name = Vec::from(&original_name[..pos]);
+        new_name.extend_from_slice(replacement.as_bytes());
+        new_name.extend_from_slice(&original_name[pos + 1..]);
+        Cow::Owned(new_name)
+    } else {
+        Cow::Borrowed(original_name)
+    }
+}
+
+fn modify_xml_tags(xml: &str, replacement: &str) -> String {
+    let mut reader = Reader::from_str(xml);
+    reader.trim_text(true);
+    let mut writer = Writer::new(Cursor::new(Vec::new()));
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                let name = e.name();
+                let modified_name = modify_name(name.as_ref(), replacement);
+                let elem_name_str = String::from_utf8_lossy(&modified_name);
+                // Using BytesStart::new for creating a new element with the modified name.
+                let elem = BytesStart::new(elem_name_str.as_ref());
+                writer
+                    .write_event(Event::Start(elem))
+                    .expect("Unable to write event");
+            }
+            Ok(Event::End(e)) => {
+                let name = e.name();
+                let modified_name = modify_name(name.as_ref(), replacement);
+                let elem_name_str = String::from_utf8_lossy(&modified_name);
+                // Using BytesEnd::new for creating a new end element with the modified name.
+                let elem = BytesEnd::new(elem_name_str.as_ref());
+                writer
+                    .write_event(Event::End(elem))
+                    .expect("Unable to write event");
+            }
+            Ok(Event::Eof) => break,
+            Ok(e) => writer.write_event(e).expect("Unable to write event"),
+            Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
+        }
+    }
+
+    let result = writer.into_inner().into_inner();
+    String::from_utf8(result).expect("Found invalid UTF-8")
+}
+
 #[cfg(test)]
 mod tests {
-    //use super::*;
+    use super::*;
+
+    #[test]
+    fn test_modify_xml_tags() {
+        let xml = r#"<root><foo:bar>Content</foo:bar><baz:qux>More Content</baz:qux></root>"#;
+        let replacement = "___placeholder___";
+
+        let expected = r#"<root><foo___placeholder___bar>Content</foo___placeholder___bar><baz___placeholder___qux>More Content</baz___placeholder___qux></root>"#;
+
+        let modified_xml = modify_xml_tags(xml, replacement);
+
+        assert_eq!(
+            modified_xml, expected,
+            "The modified XML does not match the expected output."
+        );
+    }
 }

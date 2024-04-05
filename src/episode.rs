@@ -41,31 +41,53 @@ impl<'a> Episode<'a> {
     }
 
     pub async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<PathBuf> {
-        let response = Client::new().get(self.url).send().await?;
-        let total_size = response.content_length().unwrap_or(0);
-
-        pb.set_length(total_size);
-
-        let content_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|ct| ct.to_str().ok())
-            .unwrap_or("application/octet-stream");
-
-        let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
-
-        let ext = match extensions.contains(&"mp3") {
-            true => "mp3",
-            false => extensions.first().expect("extension not found."),
-        };
-
-        let path = {
-            let file_name = format!("{}.{}", self.guid, ext);
+        let partial_path = {
+            let file_name = format!("{}.partial", self.guid);
             folder.join(file_name)
         };
 
-        let mut file = std::fs::File::create(&path)?;
         let mut downloaded: u64 = 0;
+
+        let mut file = if partial_path.exists() {
+            use std::io::Seek;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&partial_path)?;
+            downloaded = file.seek(std::io::SeekFrom::End(0))?;
+            file
+        } else {
+            std::fs::File::create(&partial_path)?
+        };
+
+        let client = Client::new();
+        let mut req_builder = client.get(self.url);
+
+        if downloaded > 0 {
+            let range_header_value = format!("bytes={}-", downloaded);
+            req_builder = req_builder.header(reqwest::header::RANGE, range_header_value);
+        }
+
+        let response = req_builder.send().await?;
+        let total_size = response.content_length().unwrap_or(0);
+
+        let ext = {
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|ct| ct.to_str().ok())
+                .unwrap_or("application/octet-stream");
+
+            let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
+
+            match extensions.contains(&"mp3") {
+                true => "mp3",
+                false => extensions.first().expect("extension not found."),
+            }
+        };
+
+        pb.set_length(total_size);
+        pb.set_position(downloaded);
+
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
@@ -75,6 +97,14 @@ impl<'a> Episode<'a> {
             pb.set_position(new);
             downloaded = new;
         }
+
+        let path = {
+            let mut path = partial_path.clone();
+            path.set_extension(ext);
+            path
+        };
+
+        std::fs::rename(partial_path, &path).unwrap();
 
         Ok(path)
     }

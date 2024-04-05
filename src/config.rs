@@ -43,7 +43,7 @@ pub struct Config {
     pub url: String,
     pub name_pattern: String,
     pub download_path: PathBuf,
-    pub custom_tags: HashMap<String, String>,
+    pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
     pub mode: DownloadMode,
 }
@@ -103,16 +103,16 @@ impl Config {
             }
         };
 
-        let custom_tags = {
+        let id3_tags = {
             let mut map = HashMap::with_capacity(
-                global_config.custom_tags.len() + podcast_config.custom_tags.len(),
+                global_config.id3_tags.len() + podcast_config.id3_tags.len(),
             );
 
-            for (key, val) in global_config.custom_tags.iter() {
+            for (key, val) in global_config.id3_tags.iter() {
                 map.insert(key.clone(), val.clone());
             }
 
-            for (key, val) in podcast_config.custom_tags.iter() {
+            for (key, val) in podcast_config.id3_tags.iter() {
                 map.insert(key.clone(), val.clone());
             }
             map
@@ -130,7 +130,7 @@ impl Config {
             url: podcast_config.url,
             name_pattern: global_config.name_pattern.clone(),
             mode,
-            custom_tags,
+            id3_tags,
             download_hook,
             download_path,
         }
@@ -147,7 +147,7 @@ pub struct GlobalConfig {
     path: PathBuf,
     earliest_date: Option<String>,
     #[serde(default)]
-    custom_tags: HashMap<String, String>,
+    id3_tags: HashMap<String, String>,
     download_hook: Option<PathBuf>,
 }
 
@@ -181,7 +181,7 @@ impl Default for GlobalConfig {
                 home.join(crate::APPNAME)
             },
             earliest_date: None,
-            custom_tags: Default::default(),
+            id3_tags: Default::default(),
             download_hook: None,
         }
     }
@@ -216,7 +216,7 @@ pub struct PodcastConfig {
     backlog_start: Option<String>,
     backlog_interval: Option<i64>,
     #[serde(default)]
-    custom_tags: HashMap<String, String>,
+    id3_tags: HashMap<String, String>,
 }
 
 fn deserialize_config_option_int<'de, D>(deserializer: D) -> Result<ConfigOption<i64>, D::Error>

@@ -9,11 +9,11 @@ use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use reqwest::Client;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write as IoWrite;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 mod config;
 mod opml;
@@ -23,7 +23,10 @@ mod utils;
 pub type Unix = std::time::Duration;
 pub const APPNAME: &'static str = "cringecast";
 
-const XML_REPLACEMENT: &'static str = "__||__";
+// Bit of a hack, i use `quickxml_to_serde` to convert from an XML file to a serde_json::Value,
+// the problem is that it will merge tags with different namespaces, which is not what I want.
+// Therefore i replace all the relevant colons with this text to avoid that.
+const XML_REPLACEMENT: &'static str = "__|@@@|__";
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -34,11 +37,20 @@ struct Args {
     export: Option<PathBuf>,
     #[arg(short, long)]
     print: bool,
+    #[arg(short, long)]
+    help: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    if args.help {
+        let help = std::fs::read_to_string(PathBuf::from("./help_file.md"))
+            .expect("unable to open help file.");
+        print!("{}", help);
+        return Ok(());
+    };
 
     let should_sync = args.import.is_none() && args.export.is_none();
 
@@ -56,11 +68,13 @@ async fn main() -> Result<()> {
 
     eprintln!("Checking for new episodes...");
     let mp = MultiProgress::new();
-    let mut futures = vec![];
 
-    let global_config = GlobalConfig::load()?;
-    let mut podcasts = Podcast::load_all(&global_config)?;
-    podcasts.sort_by_key(|pod| pod.name.clone());
+    let podcasts = {
+        let global_config = GlobalConfig::load()?;
+        let mut podcasts = Podcast::load_all(&global_config)?;
+        podcasts.sort_by_key(|pod| pod.name.clone());
+        podcasts
+    };
 
     // Longest podcast name is used for formatting.
     let Some(longest_name) = podcasts
@@ -72,21 +86,23 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     };
 
+    let mut futures = vec![];
     for podcast in podcasts {
-        let pb = mp.add(ProgressBar::new_spinner());
-        pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green}  {msg}")?);
-        pb.set_message(podcast.name.clone());
-        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb = {
+            let pb = mp.add(ProgressBar::new_spinner());
+            pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green}  {msg}")?);
+            pb.set_message(podcast.name.clone());
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb
+        };
 
         let future = tokio::task::spawn(async move { podcast.sync(pb, longest_name).await });
-
         futures.push(future);
     }
 
     let mut paths = vec![];
     for future in futures {
-        let path_vec = future.await??;
-        paths.extend(path_vec);
+        paths.extend(future.await??);
     }
 
     eprintln!("Syncing complete!");
@@ -120,33 +136,41 @@ fn truncate_string(s: &str, max_width: usize) -> String {
 }
 
 #[derive(Debug, Clone)]
-struct Episode {
-    title: String,
-    url: String,
-    guid: String,
+struct Episode<'a> {
+    title: &'a str,
+    url: &'a str,
+    guid: &'a str,
     published: i64,
     index: usize,
-    _inner: rss::Item,
-    _xml: Arc<String>,
+    inner: &'a rss::Item,
+    raw: &'a serde_json::Map<String, serde_json::Value>,
 }
 
-impl Episode {
-    fn new(item: rss::Item, index: usize, xml: Arc<String>) -> Option<Self> {
+impl<'a> Episode<'a> {
+    fn new(
+        item: &'a rss::Item,
+        index: usize,
+        raw: &'a serde_json::Map<String, serde_json::Value>,
+    ) -> Option<Self> {
         Some(Self {
-            title: item.title()?.to_owned(),
-            url: item.enclosure()?.url().to_owned(),
-            guid: item.guid()?.value().to_string(),
+            title: item.title.as_ref()?,
+            url: item.enclosure()?.url(),
+            guid: item.guid()?.value(),
             published: chrono::DateTime::parse_from_rfc2822(item.pub_date()?)
                 .ok()?
                 .timestamp(),
             index,
-            _inner: item,
-            _xml: xml,
+            inner: item,
+            raw,
         })
     }
 
+    fn get_text_value(&self, tag: &str) -> Option<&str> {
+        self.raw.get(tag)?.as_str()
+    }
+
     async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<PathBuf> {
-        let response = Client::new().get(&self.url).send().await?;
+        let response = Client::new().get(self.url).send().await?;
         let total_size = response.content_length().unwrap_or(0);
 
         pb.set_length(total_size);
@@ -165,7 +189,7 @@ impl Episode {
         };
 
         let path = {
-            let file_name = self.guid.clone() + "." + ext;
+            let file_name = format!("{}.{}", self.guid, ext);
             folder.join(file_name)
         };
 
@@ -182,6 +206,56 @@ impl Episode {
         }
 
         Ok(path)
+    }
+}
+
+pub struct Channel {
+    pub inner: rss::Channel,
+    pub xml: serde_json::Value,
+}
+
+impl Channel {
+    fn get_text_attribute(&self, key: &str) -> Option<&str> {
+        let rss = self.xml.get("rss").unwrap();
+        let channel = rss.get("channel").unwrap();
+        channel.get(key)?.as_str()
+    }
+
+    fn episodes(&self) -> Vec<Episode<'_>> {
+        let mut vec = vec![];
+
+        let mut map = HashMap::<&str, &serde_json::Map<String, serde_json::Value>>::new();
+
+        let rss = self.xml.get("rss").unwrap();
+        let channel = rss.get("channel").unwrap();
+        let raw_items = channel.get("item").unwrap().as_array().unwrap();
+
+        for item in raw_items {
+            let item = item.as_object().unwrap();
+            let guid = get_guid(item);
+            map.insert(guid, item);
+        }
+
+        for item in self.inner.items() {
+            let Some(guid) = item.guid() else { continue };
+            let obj = map.get(guid.value()).unwrap();
+
+            // in case the episodes are not chronological we put all indices as zero and then
+            // sort by published date and set index.
+            if let Some(episode) = Episode::new(&item, 0, obj) {
+                vec.push(episode);
+            }
+        }
+
+        vec.sort_by_key(|episode| episode.published);
+
+        let mut index = 0;
+        for episode in &mut vec {
+            episode.index = index;
+            index += 1;
+        }
+
+        vec
     }
 }
 
@@ -219,7 +293,7 @@ impl Podcast {
         Ok(podcasts)
     }
 
-    async fn load_episodes(&self) -> Result<(rss::Channel, Vec<Episode>)> {
+    async fn load_channel(&self) -> Result<Channel> {
         let response = reqwest::Client::new()
             .get(&self.config.url)
             .header(
@@ -230,29 +304,22 @@ impl Podcast {
             .await?;
 
         if response.status().is_success() {
-            let xml = response.text().await?;
-            let re = regex::Regex::new(r"(<\/?[\w-]+):([\w-]+)").unwrap();
-            let xml = re.replace_all(&xml, format!("$1{}$2", XML_REPLACEMENT).as_str());
-            let arced = Arc::new(xml.to_string());
+            let xml_text = response.text().await?;
+            let channel = rss::Channel::read_from(xml_text.as_bytes())?;
 
-            let data = xml.as_bytes();
+            let xml_value = {
+                let re = regex::Regex::new(r"(<\/?[\w-]+):([\w-]+)").unwrap();
+                let xml = re.replace_all(&xml_text, format!("$1{}$2", XML_REPLACEMENT).as_str());
+                let conf = XmlConfig::new_with_defaults();
+                xml_string_to_json(xml.to_string(), &conf).unwrap()
+            };
 
-            let channel = rss::Channel::read_from(&data[..])?;
-            let mut items = rss::Channel::read_from(&data[..])?.into_items();
-            items.sort_by_key(|item| {
-                chrono::DateTime::parse_from_rfc2822(item.pub_date().unwrap_or_default())
-                    .map(|x| x.timestamp())
-                    .unwrap_or_default()
-            });
+            let channel = Channel {
+                inner: channel,
+                xml: xml_value,
+            };
 
-            Ok((
-                channel,
-                items
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(index, item)| Episode::new(item, index, arced.clone()))
-                    .collect(),
-            ))
+            Ok(channel)
         } else {
             Err(anyhow::anyhow!(
                 "Failed to download RSS feed: HTTP {}",
@@ -313,7 +380,8 @@ impl Podcast {
     }
 
     async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<Vec<PathBuf>> {
-        let (channel, mut episodes) = self.load_episodes().await?;
+        let channel = self.load_channel().await?;
+        let mut episodes = channel.episodes();
         let episode_qty = episodes.len();
 
         episodes = episodes
@@ -365,10 +433,10 @@ impl Podcast {
 
             let mp3_tags = if file_path.extension().unwrap() == "mp3" {
                 let mp3_tags = crate::tags::set_mp3_tags(
-                    channel.clone(),
+                    &channel,
                     &episode,
                     &file_path,
-                    &self.config.custom_tags,
+                    &self.config.id3_tags,
                 )
                 .await?;
                 Some(mp3_tags)
@@ -376,7 +444,13 @@ impl Podcast {
                 None
             };
 
-            let file_path = rename_file(&file_path, &self.config, mp3_tags, episode);
+            let file_path = rename_file(
+                &file_path,
+                &self.config,
+                mp3_tags.as_ref(),
+                episode,
+                &channel,
+            );
             file_paths.push(file_path.clone());
 
             if let Some(script_path) = &self.config.download_hook {
@@ -399,7 +473,7 @@ struct DownloadedEpisodes(HashMap<String, Unix>);
 
 impl DownloadedEpisodes {
     fn contains_episode(&self, episode: &Episode) -> bool {
-        self.0.contains_key(&episode.guid)
+        self.0.contains_key(episode.guid)
     }
 
     fn load(name: &str, config: &Config) -> Result<Self> {
@@ -454,7 +528,14 @@ impl DownloadedEpisodes {
     }
 }
 
-fn rename_file(file: &Path, config: &Config, tags: Option<id3::Tag>, episode: &Episode) -> PathBuf {
+fn rename_file(
+    file: &Path,
+    config: &Config,
+    tags: Option<&id3::Tag>,
+    episode: &Episode,
+    channel: &Channel,
+) -> PathBuf {
+    let null = "<value not found>";
     let text = config.name_pattern.clone();
     let re = regex::Regex::new(r"\{([^\}]+)\}").unwrap();
 
@@ -475,44 +556,32 @@ fn rename_file(file: &Path, config: &Config, tags: Option<id3::Tag>, episode: &E
                 let (_, format) = date.split_once("::").unwrap();
                 datetime.format(format).to_string()
             }
-            id3 if id3.starts_with("id3::") => {
+            id3 if id3.starts_with("id3::") && tags.is_some() => {
                 let (_, tag) = id3.split_once("::").unwrap();
-                if let Some(ref tags) = tags {
-                    tags.get(tag)
-                        .map(|x| x.content())
-                        .map(|c| c.to_string())
-                        .unwrap_or(format!("<<invalid id3 tag>>"))
-                } else {
-                    String::new()
-                }
+                tags.unwrap()
+                    .get(tag)
+                    .and_then(|tag| tag.content().text())
+                    .unwrap_or(null)
+                    .to_string()
             }
             rss if rss.starts_with("rss::episode::") => {
                 let (_, key) = rss.split_once("episode::").unwrap();
                 let key = key.replace(":", XML_REPLACEMENT);
-                let xml = &episode._xml;
-                let value = get_episode_xml(&episode.guid, xml);
-                value.get(key).unwrap().as_str().unwrap().to_owned()
+                episode.get_text_value(&key).unwrap_or(null).to_string()
             }
             rss if rss.starts_with("rss::channel::") => {
                 let (_, key) = rss.split_once("channel::").unwrap();
-                let xml = &episode._xml;
 
                 // hack: quickxml_to_serde will merge namespaces, so I do this to avoid confusing
                 // itunes tags with other ones.
                 let key = key.replace(":", XML_REPLACEMENT);
-
-                let conf = XmlConfig::new_with_defaults();
-                let json = xml_string_to_json(xml.to_string(), &conf).unwrap();
-                json.get("rss")
-                    .unwrap()
-                    .get("channel")
-                    .unwrap()
-                    .get(key)
-                    .unwrap()
-                    .to_string()
+                channel.get_text_attribute(&key).unwrap_or(null).to_string()
             }
 
-            _ => "<<unknown tag>>".to_string(),
+            invalid_tag => {
+                eprintln!("invalid tag configured: {}", invalid_tag);
+                std::process::exit(1);
+            }
         };
 
         result.push_str(&replacement);
@@ -535,31 +604,15 @@ fn rename_file(file: &Path, config: &Config, tags: Option<id3::Tag>, episode: &E
     new_name
 }
 
-fn get_episode_xml(id: &str, xml: &str) -> serde_json::Value {
-    let conf = XmlConfig::new_with_defaults();
-    let json = xml_string_to_json(xml.to_owned(), &conf).unwrap();
-
-    let rss = json.get("rss").unwrap();
-    let channel = rss.get("channel").unwrap();
-    let items = channel.get("item").unwrap().as_array().unwrap();
-
-    for item in items {
-        if &item
-            .get("guid")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .get("#text")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            == &id
-        {
-            return item.clone();
-        }
-    }
-
-    panic!("ep not found lol");
+fn get_guid(item: &serde_json::Map<String, Value>) -> &str {
+    item.get("guid")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .get("#text")
+        .unwrap()
+        .as_str()
+        .unwrap()
 }
 
 #[cfg(test)]

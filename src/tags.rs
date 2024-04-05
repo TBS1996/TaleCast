@@ -1,3 +1,4 @@
+use crate::Channel;
 use crate::Episode;
 use anyhow::Result;
 use chrono::Datelike;
@@ -59,8 +60,8 @@ fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
 }
 
 pub async fn set_mp3_tags<'a>(
-    channel: rss::Channel,
-    episode: &Episode,
+    channel: &'a Channel,
+    episode: &'a Episode<'_>,
     file_path: &std::path::Path,
     custom_tags: &HashMap<String, String>,
 ) -> Result<id3::Tag> {
@@ -70,17 +71,17 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.title().is_none() {
-        tags.set_title(&episode.title);
+        tags.set_title(episode.title);
     }
 
     if tags.artist().is_none() {
-        if let Some(author) = episode._inner.author() {
+        if let Some(author) = episode.inner.author() {
             tags.set_artist(author);
         }
     }
 
     if tags.album().is_none() {
-        tags.set_album(channel.title());
+        tags.set_album(channel.inner.title());
     }
 
     if tags.genre().is_none() {
@@ -88,7 +89,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.track().is_none() {
-        if let Some(itunes) = episode._inner.itunes_ext() {
+        if let Some(itunes) = episode.inner.itunes_ext() {
             if let Some(episode) = itunes.episode() {
                 if let Ok(episode) = episode.parse::<u32>() {
                     tags.set_track(episode);
@@ -105,19 +106,19 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::COPYRIGHT).is_none() {
-        if let Some(desc) = episode._inner.description() {
+        if let Some(desc) = episode.inner.description() {
             tags.set_text(Id3Tag::COPYRIGHT, desc);
         }
     }
 
     if tags.get(Id3Tag::DESCRIPTION).is_none() {
-        if let Some(desc) = episode._inner.description() {
+        if let Some(desc) = episode.inner.description() {
             tags.set_text(Id3Tag::DESCRIPTION, desc);
         }
     }
 
     if !has_picture_type(&tags, id3::frame::PictureType::CoverFront) {
-        if let Some(itunes) = episode._inner.itunes_ext() {
+        if let Some(itunes) = episode.inner.itunes_ext() {
             if let Some(img_url) = itunes.image() {
                 add_picture(&mut tags, id3::frame::PictureType::CoverFront, img_url)
                     .await
@@ -127,7 +128,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::PODCASTCATEGORY).is_none() {
-        if let Some(itunes) = channel.itunes_ext() {
+        if let Some(itunes) = channel.inner.itunes_ext() {
             let mut strs = vec![];
             for cat in itunes.categories() {
                 strs.push(&cat.text);
@@ -155,13 +156,13 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::LANGUAGE).is_none() {
-        if let Some(language) = channel.language() {
+        if let Some(language) = channel.inner.language() {
             tags.set_text(Id3Tag::LANGUAGE, language);
         }
     }
 
     if tags.get(Id3Tag::DURATION).is_none() {
-        if let Some(itunes) = episode._inner.itunes_ext() {
+        if let Some(itunes) = episode.inner.itunes_ext() {
             if let Some(dur) = itunes.duration() {
                 if let Ok(secs) = dur.parse::<u32>() {
                     let millis = secs * 1000;
@@ -172,7 +173,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::PUBLISHER).is_none() {
-        if let Some(itunes) = channel.itunes_ext() {
+        if let Some(itunes) = channel.inner.itunes_ext() {
             if let Some(author) = itunes.author() {
                 tags.set_text(Id3Tag::PUBLISHER, author);
             }
@@ -180,7 +181,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::PODCAST_ID).is_none() {
-        tags.set_text(Id3Tag::PODCAST_ID, &episode.guid);
+        tags.set_text(Id3Tag::PODCAST_ID, episode.guid);
     }
 
     tags.write_to_path(&file_path, id3::Version::Id3v24)?;

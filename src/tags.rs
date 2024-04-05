@@ -1,4 +1,4 @@
-use crate::Episode;
+use crate::episode::Episode;
 use anyhow::Result;
 use chrono::Datelike;
 use id3::TagLike;
@@ -60,7 +60,7 @@ fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
 
 pub async fn set_mp3_tags<'a>(
     channel: &'a rss::Channel,
-    episode: &'a Episode<'_>,
+    episode: &'a Episode<'a>,
     file_path: &std::path::Path,
     custom_tags: &HashMap<String, String>,
 ) -> Result<id3::Tag> {

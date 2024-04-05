@@ -27,10 +27,10 @@ pub async fn export(p: &Path) -> Result<()> {
 
     for pod in podcasts.iter() {
         outlines.push(Outline {
-            text: pod.name.clone(),
+            text: pod.name().to_owned(),
             r#type: Some("rss".to_string()),
-            xml_url: Some(pod.config.url.clone()),
-            title: Some(pod.name.clone()),
+            xml_url: Some(pod.config().url.clone()),
+            title: Some(pod.name().to_owned()),
             ..Outline::default()
         });
     }

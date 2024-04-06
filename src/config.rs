@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+//use anyhow::Result;
 
 /// Represents a [`PodcastConfig`] value that is either enabled, disabled, or we defer to the
 /// global config.
@@ -175,16 +175,16 @@ pub struct GlobalConfig {
 }
 
 impl GlobalConfig {
-    pub fn load(p: &Path) -> Result<Self> {
+    pub fn load(p: &Path) -> Self {
         if !p.exists() {
             let default = Self::default();
-            let s = toml::to_string_pretty(&default)?;
-            let mut f = std::fs::File::create(&p)?;
-            f.write_all(s.as_bytes())?;
+            let s = toml::to_string_pretty(&default).unwrap();
+            let mut f = std::fs::File::create(&p).unwrap();
+            f.write_all(s.as_bytes()).unwrap();
         }
-        let str = std::fs::read_to_string(p)?;
+        let str = std::fs::read_to_string(p).unwrap();
 
-        Ok(toml::from_str(&str)?)
+        toml::from_str(&str).unwrap()
     }
 }
 

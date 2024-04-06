@@ -1,11 +1,10 @@
-use anyhow::Result;
 use opml::{Body, Head, Outline, OPML};
 use std::io::Write as IoWrite;
 use std::path::Path;
 
-pub async fn export(p: &Path, config_path: &Path, filter: Option<&regex::Regex>) -> Result<()> {
-    let global_config = crate::GlobalConfig::load(config_path)?;
-    let podcasts = crate::Podcast::load_all(&global_config, filter, None).await?;
+pub async fn export(p: &Path, config_path: &Path, filter: Option<&regex::Regex>) {
+    let global_config = crate::GlobalConfig::load(config_path);
+    let podcasts = crate::Podcast::load_all(&global_config, filter, None).await;
 
     let mut opml = OPML {
         head: Some(Head {
@@ -30,21 +29,21 @@ pub async fn export(p: &Path, config_path: &Path, filter: Option<&regex::Regex>)
 
     opml.body = Body { outlines };
 
-    let xml_string = opml.to_string()?;
+    let xml_string = opml.to_string().unwrap();
 
     std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(p)?
-        .write_all(xml_string.as_bytes())?;
-
-    Ok(())
+        .open(p)
+        .unwrap()
+        .write_all(xml_string.as_bytes())
+        .unwrap();
 }
 
-pub fn import(p: &Path) -> Result<()> {
-    let opml_string = std::fs::read_to_string(p)?;
-    let opml = opml::OPML::from_str(&opml_string)?;
+pub fn import(p: &Path) {
+    let opml_string = std::fs::read_to_string(p).unwrap();
+    let opml = opml::OPML::from_str(&opml_string).unwrap();
 
     let mut podcasts = vec![];
 
@@ -87,8 +86,6 @@ pub fn import(p: &Path) -> Result<()> {
     if podcasts.is_empty() {
         eprintln!("no podcasts found.");
     } else {
-        crate::utils::append_podcasts(podcasts)?;
+        crate::utils::append_podcasts(podcasts);
     }
-
-    Ok(())
 }

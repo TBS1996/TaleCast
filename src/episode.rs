@@ -1,4 +1,3 @@
-use anyhow::Result;
 use futures_util::StreamExt;
 use indicatif::ProgressBar;
 use reqwest::Client;
@@ -24,11 +23,12 @@ impl<'a> Episode<'a> {
         raw: &'a serde_json::Map<String, serde_json::Value>,
     ) -> Option<Self> {
         Some(Self {
-            title: item.title.as_ref()?,
-            url: item.enclosure()?.url(),
-            guid: item.guid()?.value(),
-            published: chrono::DateTime::parse_from_rfc2822(item.pub_date()?)
-                .ok()?
+            title: item.title.as_ref().unwrap(),
+            url: item.enclosure().unwrap().url(),
+            guid: item.guid().unwrap().value(),
+            published: chrono::DateTime::parse_from_rfc2822(item.pub_date().unwrap())
+                .ok()
+                .unwrap()
                 .timestamp(),
             index,
             inner: item,
@@ -37,10 +37,10 @@ impl<'a> Episode<'a> {
     }
 
     pub fn get_text_value(&self, tag: &str) -> Option<&str> {
-        self.raw.get(tag)?.as_str()
+        self.raw.get(tag).unwrap().as_str()
     }
 
-    pub async fn download(&self, folder: &Path, pb: Option<&ProgressBar>) -> Result<PathBuf> {
+    pub async fn download(&self, folder: &Path, pb: Option<&ProgressBar>) -> PathBuf {
         let partial_path = {
             let file_name = format!("{}.partial", self.guid);
             folder.join(file_name)
@@ -52,11 +52,12 @@ impl<'a> Episode<'a> {
             use std::io::Seek;
             let mut file = std::fs::OpenOptions::new()
                 .write(true)
-                .open(&partial_path)?;
-            downloaded = file.seek(std::io::SeekFrom::End(0))?;
+                .open(&partial_path)
+                .unwrap();
+            downloaded = file.seek(std::io::SeekFrom::End(0)).unwrap();
             file
         } else {
-            std::fs::File::create(&partial_path)?
+            std::fs::File::create(&partial_path).unwrap()
         };
 
         let mut req_builder = Client::new().get(self.url);
@@ -66,7 +67,7 @@ impl<'a> Episode<'a> {
             req_builder = req_builder.header(reqwest::header::RANGE, range_header_value);
         }
 
-        let response = req_builder.send().await?;
+        let response = req_builder.send().await.unwrap();
         let total_size = response.content_length().unwrap_or(0);
 
         let ext = {
@@ -92,8 +93,8 @@ impl<'a> Episode<'a> {
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            let chunk = item?;
-            file.write_all(&chunk)?;
+            let chunk = item.unwrap();
+            file.write_all(&chunk).unwrap();
             downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
 
             if let Some(pb) = pb {
@@ -109,6 +110,6 @@ impl<'a> Episode<'a> {
 
         std::fs::rename(partial_path, &path).unwrap();
 
-        Ok(path)
+        path
     }
 }

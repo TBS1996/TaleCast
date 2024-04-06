@@ -1,5 +1,4 @@
 use crate::episode::Episode;
-use anyhow::Result;
 use chrono::Datelike;
 use id3::TagLike;
 use std::collections::HashMap;
@@ -16,11 +15,7 @@ impl Id3Tag {
     const PODCAST_ID: &'static str = "TGID";
 }
 
-async fn add_picture(
-    tag: &mut id3::Tag,
-    picture_type: id3::frame::PictureType,
-    url: &str,
-) -> Result<()> {
+async fn add_picture(tag: &mut id3::Tag, picture_type: id3::frame::PictureType, url: &str) {
     let response = reqwest::get(url).await.unwrap();
     if response.status().is_success() {
         let mime_type = response
@@ -44,8 +39,6 @@ async fn add_picture(
             tag.add_frame(frame);
         }
     }
-
-    Ok(())
 }
 
 fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
@@ -63,8 +56,8 @@ pub async fn set_mp3_tags<'a>(
     episode: &'a Episode<'a>,
     file_path: &std::path::Path,
     custom_tags: &HashMap<String, String>,
-) -> Result<id3::Tag> {
-    let mut tags = id3::Tag::read_from_path(&file_path)?;
+) -> id3::Tag {
+    let mut tags = id3::Tag::read_from_path(&file_path).unwrap();
     for (id, value) in custom_tags {
         tags.set_text(id, value);
     }
@@ -119,9 +112,7 @@ pub async fn set_mp3_tags<'a>(
     if !has_picture_type(&tags, id3::frame::PictureType::CoverFront) {
         if let Some(itunes) = episode.inner.itunes_ext() {
             if let Some(img_url) = itunes.image() {
-                add_picture(&mut tags, id3::frame::PictureType::CoverFront, img_url)
-                    .await
-                    .ok();
+                add_picture(&mut tags, id3::frame::PictureType::CoverFront, img_url).await;
             }
         }
     }
@@ -183,7 +174,8 @@ pub async fn set_mp3_tags<'a>(
         tags.set_text(Id3Tag::PODCAST_ID, episode.guid);
     }
 
-    tags.write_to_path(&file_path, id3::Version::Id3v24)?;
+    tags.write_to_path(&file_path, id3::Version::Id3v24)
+        .unwrap();
 
-    Ok(tags)
+    tags
 }

@@ -8,7 +8,6 @@ use crate::utils::remove_xml_namespaces;
 use crate::utils::truncate_string;
 use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
-use anyhow::Result;
 use id3::TagLike;
 use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -55,21 +54,21 @@ impl Podcast {
         &self.config
     }
 
-    fn download_folder(&self) -> Result<PathBuf> {
+    fn download_folder(&self) -> PathBuf {
         let download_pattern = &self.config.download_path;
         let evaluated = self.evaluate_pattern(download_pattern, None, None);
         let path = PathBuf::from(evaluated);
         std::fs::create_dir_all(&path).unwrap();
-        Ok(path)
+        path
     }
 
     pub async fn load_all(
         global_config: &GlobalConfig,
         filter: Option<&regex::Regex>,
         mp: Option<&MultiProgress>,
-    ) -> Result<Vec<Self>> {
+    ) -> Vec<Self> {
         let configs: HashMap<String, PodcastConfig> = {
-            let path = crate::utils::podcasts_toml().unwrap();
+            let path = crate::utils::podcasts_toml();
             if !path.exists() {
                 eprintln!("You need to create a 'podcasts.toml' file to get started");
                 std::process::exit(1);
@@ -88,7 +87,7 @@ impl Podcast {
             }
 
             let config = Config::new(&global_config, config);
-            let xml_string = Self::load_xml(&config.url).await.unwrap();
+            let xml_string = Self::load_xml(&config.url).await;
             let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
             let xml_value = xml_to_value(&xml_string);
             let progress_bar = match mp {
@@ -107,7 +106,7 @@ impl Podcast {
 
         eprintln!("syncing {}/{} podcasts", podcasts.len(), podcast_qty);
 
-        Ok(podcasts)
+        podcasts
     }
 
     fn get_text_attribute(&self, key: &str) -> Option<&str> {
@@ -252,7 +251,7 @@ impl Podcast {
         result
     }
 
-    async fn load_xml(url: &str) -> Result<String> {
+    async fn load_xml(url: &str) -> String {
         let response = reqwest::Client::new()
             .get(url)
             .header(
@@ -266,12 +265,9 @@ impl Podcast {
         if response.status().is_success() {
             let xml = response.text().await.unwrap();
 
-            Ok(xml)
+            xml
         } else {
-            Err(anyhow::anyhow!(
-                "Failed to download RSS feed: HTTP {}",
-                response.status()
-            ))
+            panic!("failed to get response or smth");
         }
     }
 
@@ -300,42 +296,35 @@ impl Podcast {
                 max_episodes,
                 earliest_date,
             } => {
-                let max_days_exceeded = max_days.is_some_and(|max_days| {
-                    (current_unix() - episode.published) > max_days as i64 * 86400
-                });
+                let max_days_exceeded = || {
+                    max_days.is_some_and(|max_days| {
+                        (current_unix() - episode.published) > max_days as i64 * 86400
+                    })
+                };
 
-                if max_days_exceeded {
-                    return false;
-                }
+                let max_episodes_exceeded = || {
+                    max_episodes.is_some_and(|max_episodes| {
+                        (latest_episode - max_episodes as usize) > episode.index
+                    })
+                };
 
-                let max_episodes_exceeded = max_episodes.is_some_and(|max_episodes| {
-                    (latest_episode - max_episodes as usize) > episode.index
-                });
+                let episode_too_old = || {
+                    earliest_date.as_ref().is_some_and(|date| {
+                        chrono::DateTime::parse_from_rfc3339(&date)
+                            .unwrap()
+                            .timestamp()
+                            > episode.published
+                    })
+                };
 
-                if max_episodes_exceeded {
-                    return false;
-                }
-
-                let episode_too_old = earliest_date.as_ref().is_some_and(|date| {
-                    chrono::DateTime::parse_from_rfc3339(&date)
-                        .unwrap()
-                        .timestamp()
-                        > episode.published
-                });
-
-                if episode_too_old {
-                    return false;
-                }
-
-                true
+                !max_days_exceeded() && !max_episodes_exceeded() && !episode_too_old()
             }
         }
     }
 
-    fn mark_downloaded(&self, episode: &Episode, path: &Path) -> Result<()> {
+    fn mark_downloaded(&self, episode: &Episode, path: &Path) {
         let id = self.get_id(episode);
-        DownloadedEpisodes::append(&id, path, &episode).unwrap();
-        Ok(())
+        DownloadedEpisodes::append(&id, path, &episode);
     }
 
     fn get_id(&self, episode: &Episode) -> String {
@@ -347,7 +336,7 @@ impl Podcast {
     fn pending_episodes(&self, download_folder: &Path) -> Vec<Episode<'_>> {
         let mut episodes = self.episodes();
         let episode_qty = episodes.len();
-        let downloaded = DownloadedEpisodes::load(&download_folder).unwrap();
+        let downloaded = DownloadedEpisodes::load(&download_folder);
 
         episodes = episodes
             .into_iter()
@@ -419,8 +408,8 @@ impl Podcast {
         }
     }
 
-    pub async fn sync(&self, longest_podcast_name: usize) -> Result<Vec<PathBuf>> {
-        let download_folder = self.download_folder().unwrap();
+    pub async fn sync(&self, longest_podcast_name: usize) -> Vec<PathBuf> {
+        let download_folder = self.download_folder();
         let episodes = self.pending_episodes(&download_folder);
         self.set_download_style();
 
@@ -431,8 +420,7 @@ impl Podcast {
 
             let file_path = episode
                 .download(&download_folder, self.progress_bar.as_ref())
-                .await
-                .unwrap();
+                .await;
 
             let mp3_tags = (file_path.extension().unwrap() == "mp3").then_some(
                 crate::tags::set_mp3_tags(
@@ -441,13 +429,12 @@ impl Podcast {
                     &file_path,
                     &self.config.id3_tags,
                 )
-                .await
-                .unwrap(),
+                .await,
             );
 
             let file_path = self.rename_file(&file_path, mp3_tags.as_ref(), episode);
 
-            self.mark_downloaded(episode, &download_folder).unwrap();
+            self.mark_downloaded(episode, &download_folder);
             file_paths.push(file_path.clone());
 
             if let Some(script_path) = self.config.download_hook.clone() {
@@ -469,7 +456,7 @@ impl Podcast {
         let msg = format!("✅ {}", &self.name);
         self.finish_with_msg(msg);
 
-        Ok(file_paths)
+        file_paths
     }
 }
 
@@ -480,12 +467,12 @@ struct DownloadedEpisodes(HashMap<String, Unix>);
 impl DownloadedEpisodes {
     const FILENAME: &'static str = ".downloaded";
 
-    fn load(path: &Path) -> Result<Self> {
+    fn load(path: &Path) -> Self {
         let path = path.join(Self::FILENAME);
         let s = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default());
+                return Self::default();
             }
             e @ Err(_) => e.unwrap(),
         };
@@ -505,10 +492,10 @@ impl DownloadedEpisodes {
             }
         }
 
-        Ok(Self(hashmap))
+        Self(hashmap)
     }
 
-    fn append(id: &str, path: &Path, episode: &Episode) -> Result<()> {
+    fn append(id: &str, path: &Path, episode: &Episode) {
         let path = path.join(Self::FILENAME);
         use std::io::Write;
 
@@ -519,6 +506,5 @@ impl DownloadedEpisodes {
             .unwrap();
 
         writeln!(file, "{} {} \"{}\"", id, current_unix(), &episode.title).unwrap();
-        Ok(())
     }
 }

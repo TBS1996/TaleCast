@@ -1,4 +1,3 @@
-use anyhow::Result;
 use quick_xml::{
     events::{BytesEnd, BytesStart, Event},
     Reader, Writer,
@@ -15,42 +14,38 @@ pub type Unix = std::time::Duration;
 pub const NAMESPACE_ALTER: &'static str = "__placeholder__";
 
 #[allow(dead_code)]
-pub fn log<S: AsRef<str>>(message: S) -> Result<()> {
-    let log_file_path = default_download_path()?;
+pub fn log<S: AsRef<str>>(message: S) {
+    let log_file_path = default_download_path();
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_file_path)?;
-    writeln!(file, "{}", message.as_ref())?;
-    Ok(())
+        .open(log_file_path)
+        .unwrap();
+    writeln!(file, "{}", message.as_ref()).unwrap();
 }
 
-fn config_dir() -> Result<PathBuf> {
-    let p = dirs::config_dir()
-        .ok_or(anyhow::Error::msg("no config dir found"))?
-        .join(crate::APPNAME);
-    std::fs::create_dir_all(&p)?;
-    Ok(p)
+fn config_dir() -> PathBuf {
+    let p = dirs::config_dir().unwrap().join(crate::APPNAME);
+    std::fs::create_dir_all(&p).unwrap();
+    p
 }
 
-pub fn podcasts_toml() -> Result<PathBuf> {
-    Ok(config_dir()?.join("podcasts.toml"))
+pub fn podcasts_toml() -> PathBuf {
+    config_dir().join("podcasts.toml")
 }
 
-pub fn config_toml() -> Result<PathBuf> {
-    Ok(config_dir()?.join("config.toml"))
+pub fn config_toml() -> PathBuf {
+    config_dir().join("config.toml")
 }
 
 pub fn current_unix() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-pub fn default_download_path() -> Result<PathBuf> {
-    let p = dirs::home_dir()
-        .ok_or(anyhow::Error::msg("unable to get home directory"))?
-        .join(crate::APPNAME);
-    std::fs::create_dir_all(&p)?;
-    Ok(p)
+pub fn default_download_path() -> PathBuf {
+    let p = dirs::home_dir().unwrap().join(crate::APPNAME);
+    std::fs::create_dir_all(&p).unwrap();
+    p
 }
 
 pub fn tutorial() -> &'static str {
@@ -77,7 +72,7 @@ Certain settings can be disabled, for example, you might have a global `max_epis
 # keeping track of downloaded episodes  
  
 
-you wouldn't want the program to start re-downloading episodes every time you move some episodes out of their download folder, right? So, every time an episode is downloaded, a hidden file called `.downloaded` is appended with the ID of the episode to stop it from being re-downloaded. It also contains the title so that users can manually edit it, which is encouraged. Every episode takes one line on purpose in order to make git versioning easier. 
+you wouldn't want the program to start re-downloading episodes every time you move some episodes out of their download folder, right.unwrap() So, every time an episode is downloaded, a hidden file called `.downloaded` is appended with the ID of the episode to stop it from being re-downloaded. It also contains the title so that users can manually edit it, which is encouraged. Every episode takes one line on purpose in order to make git versioning easier. 
 
 # opml import/export 
 
@@ -115,7 +110,7 @@ in this setting, set the path to a script and it'll be executed with the path of
 
 # backlog mode   
 
-Just found an old podcast with many episodes and you wanna slowly go through them? backlog mode makes it easy!    
+Just found an old podcast with many episodes and you wanna slowly go through them.unwrap() backlog mode makes it easy!    
 It allows you to get podcast episodes starting from the beginning at a certain interval (days per episode) as if they are new!
 
 there are two settings:  
@@ -201,7 +196,7 @@ pub fn remove_xml_namespaces(xml: &str, replacement: &str) -> String {
             }
             Ok(Event::Eof) => break,
             Ok(e) => writer.write_event(e).expect("Unable to write event"),
-            Err(e) => panic!("Error at position {}: {:?}", reader.buffer_position(), e),
+            Err(e) => panic!("Error at position {}: {:.?}", reader.buffer_position(), e),
         }
     }
 
@@ -239,8 +234,8 @@ struct BasicPodcast {
 ///
 /// The reason it doesn't simply deserialize, modify, then serialize, is to not overrwite comments
 /// in the config.
-pub fn append_podcasts(name_and_url: Vec<(String, String)>) -> Result<()> {
-    let path = crate::utils::podcasts_toml()?;
+pub fn append_podcasts(name_and_url: Vec<(String, String)>) {
+    let path = crate::utils::podcasts_toml();
 
     let config_appendix = {
         let mut map = HashMap::new();
@@ -250,7 +245,7 @@ pub fn append_podcasts(name_and_url: Vec<(String, String)>) -> Result<()> {
             map.insert(name, pod);
         }
 
-        toml::to_string_pretty(&map)?
+        toml::to_string_pretty(&map).unwrap()
     };
 
     let new_config = match path.exists() {
@@ -267,9 +262,7 @@ pub fn append_podcasts(name_and_url: Vec<(String, String)>) -> Result<()> {
         false => config_appendix,
     };
 
-    std::fs::write(&path, new_config)?;
-
-    Ok(())
+    std::fs::write(&path, new_config).unwrap();
 }
 
 #[cfg(test)]

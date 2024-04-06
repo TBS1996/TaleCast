@@ -25,6 +25,7 @@ fn xml_to_value(xml: &str) -> Value {
 
 #[derive(Debug)]
 pub struct Podcast {
+    /// The configured name in `podcasts.toml`.
     name: String,
     channel: rss::Channel,
     xml: serde_json::Value,
@@ -40,7 +41,10 @@ impl Podcast {
         &self.config
     }
 
-    pub async fn load_all(global_config: &GlobalConfig) -> Result<Vec<Self>> {
+    pub async fn load_all(
+        global_config: &GlobalConfig,
+        filter: Option<&regex::Regex>,
+    ) -> Result<Vec<Self>> {
         let configs: HashMap<String, PodcastConfig> = {
             let path = crate::utils::podcasts_toml().unwrap();
             if !path.exists() {
@@ -51,8 +55,15 @@ impl Podcast {
             toml::from_str(&config_str).unwrap()
         };
 
+        let podcast_qty = configs.len();
         let mut podcasts = vec![];
         for (name, config) in configs {
+            if let Some(re) = filter {
+                if !re.is_match(&name) {
+                    continue;
+                }
+            }
+
             let config = Config::new(&global_config, config);
             let xml_string = Self::load_xml(&config.url).await.unwrap();
             let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
@@ -65,6 +76,8 @@ impl Podcast {
                 config,
             });
         }
+
+        eprintln!("syncing {}/{} podcasts", podcasts.len(), podcast_qty);
 
         Ok(podcasts)
     }

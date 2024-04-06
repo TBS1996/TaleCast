@@ -2,7 +2,7 @@ use crate::utils::Unix;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
@@ -175,9 +175,7 @@ pub struct GlobalConfig {
 }
 
 impl GlobalConfig {
-    pub fn load() -> Result<Self> {
-        let p = crate::utils::config_toml()?;
-
+    pub fn load(p: &Path) -> Result<Self> {
         if !p.exists() {
             let default = Self::default();
             let s = toml::to_string_pretty(&default)?;

@@ -10,6 +10,7 @@ use std::io::Write as IOWrite;
 use std::path::PathBuf;
 
 pub type Unix = std::time::Duration;
+
 /// Refer to [`remove_xml_namespaces`] for an explanation.
 pub const NAMESPACE_ALTER: &'static str = "__placeholder__";
 

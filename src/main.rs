@@ -29,11 +29,18 @@ struct Args {
     tutorial: bool,
     #[arg(short, long, num_args = 2)]
     add: Vec<String>,
+    #[arg(short, long)]
+    filter: Option<regex::Regex>,
+    #[arg(short, long, value_name = "FILE")]
+    config: Option<PathBuf>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    let config_path = args
+        .config
+        .unwrap_or_else(|| crate::utils::config_toml().unwrap());
 
     let should_sync =
         args.import.is_none() && args.export.is_none() && args.add.is_empty() && !args.tutorial;
@@ -47,7 +54,7 @@ async fn main() -> Result<()> {
     }
 
     if let Some(path) = args.export {
-        crate::opml::export(&path).await?;
+        crate::opml::export(&path, &config_path, args.filter.as_ref()).await?;
     }
 
     if !args.add.is_empty() {
@@ -69,8 +76,8 @@ async fn main() -> Result<()> {
     let mp = MultiProgress::new();
 
     let podcasts = {
-        let global_config = GlobalConfig::load()?;
-        let mut podcasts = Podcast::load_all(&global_config).await?;
+        let global_config = GlobalConfig::load(&config_path)?;
+        let mut podcasts = Podcast::load_all(&global_config, args.filter.as_ref()).await?;
         podcasts.sort_by_key(|pod| pod.name().to_owned());
         podcasts
     };

@@ -3,9 +3,9 @@ use opml::{Body, Head, Outline, OPML};
 use std::io::Write as IoWrite;
 use std::path::Path;
 
-pub async fn export(p: &Path) -> Result<()> {
-    let global_config = crate::GlobalConfig::load()?;
-    let podcasts = crate::Podcast::load_all(&global_config).await?;
+pub async fn export(p: &Path, config_path: &Path, filter: Option<&regex::Regex>) -> Result<()> {
+    let global_config = crate::GlobalConfig::load(config_path)?;
+    let podcasts = crate::Podcast::load_all(&global_config, filter).await?;
 
     let mut opml = OPML {
         head: Some(Head {

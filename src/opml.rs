@@ -5,8 +5,7 @@ use std::path::Path;
 
 pub async fn export(p: &Path, config_path: &Path, filter: Option<&regex::Regex>) -> Result<()> {
     let global_config = crate::GlobalConfig::load(config_path)?;
-    let podcasts =
-        crate::Podcast::load_all(&global_config, filter, &indicatif::MultiProgress::new()).await?;
+    let podcasts = crate::Podcast::load_all(&global_config, filter, None).await?;
 
     let mut opml = OPML {
         head: Some(Head {

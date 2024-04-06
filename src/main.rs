@@ -32,6 +32,8 @@ struct Args {
     filter: Option<regex::Regex>,
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
+    #[arg(short, long)]
+    quiet: bool,
 }
 
 #[tokio::main]
@@ -69,11 +71,12 @@ async fn main() -> Result<()> {
     }
 
     eprintln!("Checking for new episodes...");
-    let mp = MultiProgress::new();
+    let mp = (!args.quiet).then_some(MultiProgress::new());
 
     let podcasts = {
         let global_config = GlobalConfig::load(&config_path)?;
-        let mut podcasts = Podcast::load_all(&global_config, args.filter.as_ref(), &mp).await?;
+        let mut podcasts =
+            Podcast::load_all(&global_config, args.filter.as_ref(), mp.as_ref()).await?;
         podcasts.sort_by_key(|pod| pod.name().to_owned());
         podcasts
     };

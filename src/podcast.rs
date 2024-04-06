@@ -43,7 +43,7 @@ pub struct Podcast {
     channel: rss::Channel,
     xml: serde_json::Value,
     config: Config,
-    progress_bar: ProgressBar,
+    progress_bar: Option<ProgressBar>,
 }
 
 impl Podcast {
@@ -55,10 +55,18 @@ impl Podcast {
         &self.config
     }
 
+    fn download_folder(&self) -> Result<PathBuf> {
+        let download_pattern = &self.config.download_path;
+        let evaluated = self.evaluate_pattern(download_pattern, None, None);
+        let path = PathBuf::from(evaluated);
+        std::fs::create_dir_all(&path).unwrap();
+        Ok(path)
+    }
+
     pub async fn load_all(
         global_config: &GlobalConfig,
         filter: Option<&regex::Regex>,
-        mp: &MultiProgress,
+        mp: Option<&MultiProgress>,
     ) -> Result<Vec<Self>> {
         let configs: HashMap<String, PodcastConfig> = {
             let path = crate::utils::podcasts_toml().unwrap();
@@ -83,7 +91,10 @@ impl Podcast {
             let xml_string = Self::load_xml(&config.url).await.unwrap();
             let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
             let xml_value = xml_to_value(&xml_string);
-            let progress_bar = init_podcast_status(mp, &name);
+            let progress_bar = match mp {
+                Some(mp) => Some(init_podcast_status(mp, &name)),
+                None => None,
+            };
 
             podcasts.push(Self {
                 name,
@@ -264,14 +275,6 @@ impl Podcast {
         }
     }
 
-    fn download_folder(&self) -> Result<PathBuf> {
-        let download_pattern = &self.config.download_path;
-        let evaluated = self.evaluate_pattern(download_pattern, None, None);
-        let path = PathBuf::from(evaluated);
-        std::fs::create_dir_all(&path).unwrap();
-        Ok(path)
-    }
-
     fn should_download(
         &self,
         episode: &Episode,
@@ -367,11 +370,13 @@ impl Podcast {
     }
 
     fn set_download_style(&self) {
-        self.progress_bar.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")
-                .unwrap(),
-        );
+        if let Some(pb) = &self.progress_bar {
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")
+                    .unwrap(),
+            );
+        }
     }
 
     fn show_download_info(
@@ -381,32 +386,37 @@ impl Podcast {
         longest_podcast_name: usize,
         episode_qty: usize,
     ) {
-        let fitted_episode_title = {
-            let title_length = 30;
-            let padded = &format!("{:<width$}", episode.title, width = title_length);
-            truncate_string(padded, title_length)
-        };
+        if let Some(pb) = &self.progress_bar {
+            let fitted_episode_title = {
+                let title_length = 30;
+                let padded = &format!("{:<width$}", episode.title, width = title_length);
+                truncate_string(padded, title_length)
+            };
 
-        let msg = format!(
-            "{:<podcast_width$} {}/{} {} ",
-            &self.name,
-            index + 1,
-            episode_qty,
-            &fitted_episode_title,
-            podcast_width = longest_podcast_name + 3
-        );
+            let msg = format!(
+                "{:<podcast_width$} {}/{} {} ",
+                &self.name,
+                index + 1,
+                episode_qty,
+                &fitted_episode_title,
+                podcast_width = longest_podcast_name + 3
+            );
 
-        self.progress_bar.set_message(msg);
-        self.progress_bar.set_position(0);
+            pb.set_message(msg);
+            pb.set_position(0);
+        }
     }
 
     fn set_template(&self, style: &str) {
-        self.progress_bar
-            .set_style(ProgressStyle::default_bar().template(style).unwrap());
+        if let Some(pb) = &self.progress_bar {
+            pb.set_style(ProgressStyle::default_bar().template(style).unwrap());
+        }
     }
 
     fn finish_with_msg(&self, msg: String) {
-        self.progress_bar.finish_with_message(msg);
+        if let Some(pb) = &self.progress_bar {
+            pb.finish_with_message(msg);
+        }
     }
 
     pub async fn sync(&self, longest_podcast_name: usize) -> Result<Vec<PathBuf>> {
@@ -420,7 +430,7 @@ impl Podcast {
             self.show_download_info(episode, index, longest_podcast_name, episodes.len());
 
             let file_path = episode
-                .download(&download_folder, &self.progress_bar)
+                .download(&download_folder, self.progress_bar.as_ref())
                 .await
                 .unwrap();
 

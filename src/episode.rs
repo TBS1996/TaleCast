@@ -40,7 +40,7 @@ impl<'a> Episode<'a> {
         self.raw.get(tag)?.as_str()
     }
 
-    pub async fn download(&self, folder: &Path, pb: &ProgressBar) -> Result<PathBuf> {
+    pub async fn download(&self, folder: &Path, pb: Option<&ProgressBar>) -> Result<PathBuf> {
         let partial_path = {
             let file_name = format!("{}.partial", self.guid);
             folder.join(file_name)
@@ -84,8 +84,10 @@ impl<'a> Episode<'a> {
             }
         };
 
-        pb.set_length(total_size);
-        pb.set_position(downloaded);
+        if let Some(pb) = pb {
+            pb.set_length(total_size);
+            pb.set_position(downloaded);
+        }
 
         let mut stream = response.bytes_stream();
 
@@ -93,7 +95,10 @@ impl<'a> Episode<'a> {
             let chunk = item?;
             file.write_all(&chunk)?;
             downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
-            pb.set_position(downloaded);
+
+            if let Some(pb) = pb {
+                pb.set_position(downloaded);
+            }
         }
 
         let path = {

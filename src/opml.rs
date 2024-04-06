@@ -1,14 +1,7 @@
 use anyhow::Result;
 use opml::{Body, Head, Outline, OPML};
-use serde::Serialize;
-use std::collections::HashMap;
 use std::io::Write as IoWrite;
 use std::path::Path;
-
-#[derive(Serialize)]
-struct BasicPodcast {
-    url: String,
-}
 
 pub async fn export(p: &Path) -> Result<()> {
     let global_config = crate::GlobalConfig::load()?;
@@ -53,7 +46,7 @@ pub fn import(p: &Path) -> Result<()> {
     let opml_string = std::fs::read_to_string(p)?;
     let opml = opml::OPML::from_str(&opml_string)?;
 
-    let mut map = HashMap::new();
+    let mut podcasts = vec![];
 
     for podcast in opml.body.outlines.into_iter() {
         let title = {
@@ -88,30 +81,14 @@ pub fn import(p: &Path) -> Result<()> {
             (Some(title), Some(url)) => (title, url),
         };
 
-        map.insert(title, BasicPodcast { url });
+        podcasts.push((title, url));
     }
 
-    if map.is_empty() {
+    if podcasts.is_empty() {
         eprintln!("no podcasts found.");
-        std::process::exit(1);
+    } else {
+        crate::utils::append_podcasts(podcasts)?;
     }
-
-    let path = crate::utils::podcasts_toml()?;
-
-    let mut toml_string = toml::to_string_pretty(&map)?;
-
-    if !std::fs::read_to_string(&path).map_or(true, |s| s.ends_with('\n')) {
-        // If file exists, and contains text, and doesn't end with a newline, we prepend the toml
-        // string for aestethic reasons.
-        toml_string.insert(0, '\n');
-    }
-
-    // We append to preserve to comments in the toml file.
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?
-        .write(toml_string.as_bytes())?;
 
     Ok(())
 }

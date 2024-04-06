@@ -27,17 +27,20 @@ struct Args {
     print: bool,
     #[arg(long)]
     tutorial: bool,
+    #[arg(short, long, num_args = 2)]
+    add: Vec<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
+    let should_sync =
+        args.import.is_none() && args.export.is_none() && args.add.is_empty() && !args.tutorial;
+
     if args.tutorial {
         print!("{}", crate::utils::tutorial());
-        return Ok(());
     };
-    let should_sync = args.import.is_none() && args.export.is_none();
 
     if let Some(path) = args.import {
         crate::opml::import(&path)?;
@@ -45,6 +48,17 @@ async fn main() -> Result<()> {
 
     if let Some(path) = args.export {
         crate::opml::export(&path).await?;
+    }
+
+    if !args.add.is_empty() {
+        if args.add.len() == 2 {
+            let url = &args.add[0];
+            let name = &args.add[1];
+            crate::utils::append_podcasts(vec![(name.to_string(), url.to_string())])?;
+            eprintln!("'{}' added!", name);
+        } else {
+            eprintln!("usage: --add [url] [name]");
+        }
     }
 
     if !should_sync {

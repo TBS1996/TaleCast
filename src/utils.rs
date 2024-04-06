@@ -226,6 +226,51 @@ pub fn truncate_string(s: &str, max_width: usize) -> String {
     truncated
 }
 
+use serde::Serialize;
+use std::collections::HashMap;
+
+#[derive(Serialize)]
+struct BasicPodcast {
+    url: String,
+}
+
+/// Extends the podcasts.toml file with new podcasts.
+///
+/// The reason it doesn't simply deserialize, modify, then serialize, is to not overrwite comments
+/// in the config.
+pub fn append_podcasts(name_and_url: Vec<(String, String)>) -> Result<()> {
+    let path = crate::utils::podcasts_toml()?;
+
+    let config_appendix = {
+        let mut map = HashMap::new();
+
+        for (name, url) in name_and_url {
+            let pod = BasicPodcast { url };
+            map.insert(name, pod);
+        }
+
+        toml::to_string_pretty(&map)?
+    };
+
+    let new_config = match path.exists() {
+        true => {
+            let binding = std::fs::read_to_string(&path).unwrap();
+            let old_string = binding.trim_end_matches('\n');
+
+            if old_string.is_empty() {
+                config_appendix
+            } else {
+                format!("{}\n\n{}", old_string, config_appendix)
+            }
+        }
+        false => config_appendix,
+    };
+
+    std::fs::write(&path, new_config)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

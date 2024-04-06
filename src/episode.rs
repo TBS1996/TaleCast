@@ -59,8 +59,7 @@ impl<'a> Episode<'a> {
             std::fs::File::create(&partial_path)?
         };
 
-        let client = Client::new();
-        let mut req_builder = client.get(self.url);
+        let mut req_builder = Client::new().get(self.url);
 
         if downloaded > 0 {
             let range_header_value = format!("bytes={}-", downloaded);
@@ -93,9 +92,8 @@ impl<'a> Episode<'a> {
         while let Some(item) = stream.next().await {
             let chunk = item?;
             file.write_all(&chunk)?;
-            let new = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
-            pb.set_position(new);
-            downloaded = new;
+            downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
+            pb.set_position(downloaded);
         }
 
         let path = {

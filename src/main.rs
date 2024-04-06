@@ -4,7 +4,6 @@ use crate::podcast::Podcast;
 use anyhow::Result;
 use clap::Parser;
 use indicatif::MultiProgress;
-use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 
 mod config;
@@ -58,14 +57,11 @@ async fn main() -> Result<()> {
     }
 
     if !args.add.is_empty() {
-        if args.add.len() == 2 {
-            let url = &args.add[0];
-            let name = &args.add[1];
-            crate::utils::append_podcasts(vec![(name.to_string(), url.to_string())])?;
-            eprintln!("'{}' added!", name);
-        } else {
-            eprintln!("usage: --add [url] [name]");
-        }
+        assert_eq!(args.add.len(), 2);
+        let url = &args.add[0];
+        let name = &args.add[1];
+        crate::utils::append_podcasts(vec![(name.to_string(), url.to_string())])?;
+        eprintln!("'{}' added!", name);
     }
 
     if !should_sync {
@@ -77,7 +73,7 @@ async fn main() -> Result<()> {
 
     let podcasts = {
         let global_config = GlobalConfig::load(&config_path)?;
-        let mut podcasts = Podcast::load_all(&global_config, args.filter.as_ref()).await?;
+        let mut podcasts = Podcast::load_all(&global_config, args.filter.as_ref(), &mp).await?;
         podcasts.sort_by_key(|pod| pod.name().to_owned());
         podcasts
     };
@@ -94,15 +90,7 @@ async fn main() -> Result<()> {
 
     let mut futures = vec![];
     for podcast in podcasts {
-        let pb = {
-            let pb = mp.add(ProgressBar::new_spinner());
-            pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green}  {msg}")?);
-            pb.set_message(podcast.name().to_owned());
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
-            pb
-        };
-
-        let future = tokio::task::spawn(async move { podcast.sync(pb, longest_name).await });
+        let future = tokio::task::spawn(async move { podcast.sync(longest_name).await });
         futures.push(future);
     }
 

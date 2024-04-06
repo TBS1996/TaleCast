@@ -10,6 +10,7 @@ use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
 use anyhow::Result;
 use id3::TagLike;
+use indicatif::MultiProgress;
 use indicatif::{ProgressBar, ProgressStyle};
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use serde_json::Value;
@@ -23,6 +24,18 @@ fn xml_to_value(xml: &str) -> Value {
     xml_string_to_json(xml, &conf).unwrap()
 }
 
+fn init_podcast_status(mp: &MultiProgress, name: &str) -> ProgressBar {
+    let pb = mp.add(ProgressBar::new_spinner());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green}  {msg}")
+            .unwrap(),
+    );
+    pb.set_message(name.to_owned());
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    pb
+}
+
 #[derive(Debug)]
 pub struct Podcast {
     /// The configured name in `podcasts.toml`.
@@ -30,6 +43,7 @@ pub struct Podcast {
     channel: rss::Channel,
     xml: serde_json::Value,
     config: Config,
+    progress_bar: ProgressBar,
 }
 
 impl Podcast {
@@ -44,6 +58,7 @@ impl Podcast {
     pub async fn load_all(
         global_config: &GlobalConfig,
         filter: Option<&regex::Regex>,
+        mp: &MultiProgress,
     ) -> Result<Vec<Self>> {
         let configs: HashMap<String, PodcastConfig> = {
             let path = crate::utils::podcasts_toml().unwrap();
@@ -68,12 +83,14 @@ impl Podcast {
             let xml_string = Self::load_xml(&config.url).await.unwrap();
             let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
             let xml_value = xml_to_value(&xml_string);
+            let progress_bar = init_podcast_status(mp, &name);
 
             podcasts.push(Self {
                 name,
                 channel,
                 xml: xml_value,
                 config,
+                progress_bar,
             });
         }
 
@@ -324,10 +341,9 @@ impl Podcast {
             .replace(" ", "_")
     }
 
-    pub async fn sync(&self, pb: ProgressBar, longest_podcast_name: usize) -> Result<Vec<PathBuf>> {
+    fn pending_episodes(&self, download_folder: &Path) -> Vec<Episode<'_>> {
         let mut episodes = self.episodes();
         let episode_qty = episodes.len();
-        let download_folder = self.download_folder().unwrap();
         let downloaded = DownloadedEpisodes::load(&download_folder).unwrap();
 
         episodes = episodes
@@ -347,34 +363,66 @@ impl Podcast {
             }
         }
 
-        pb.set_style(
+        episodes
+    }
+
+    fn set_download_style(&self) {
+        self.progress_bar.set_style(
             ProgressStyle::default_bar()
                 .template("{spinner:.green} {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")
                 .unwrap(),
         );
+    }
+
+    fn show_download_info(
+        &self,
+        episode: &Episode,
+        index: usize,
+        longest_podcast_name: usize,
+        episode_qty: usize,
+    ) {
+        let fitted_episode_title = {
+            let title_length = 30;
+            let padded = &format!("{:<width$}", episode.title, width = title_length);
+            truncate_string(padded, title_length)
+        };
+
+        let msg = format!(
+            "{:<podcast_width$} {}/{} {} ",
+            &self.name,
+            index + 1,
+            episode_qty,
+            &fitted_episode_title,
+            podcast_width = longest_podcast_name + 3
+        );
+
+        self.progress_bar.set_message(msg);
+        self.progress_bar.set_position(0);
+    }
+
+    fn set_template(&self, style: &str) {
+        self.progress_bar
+            .set_style(ProgressStyle::default_bar().template(style).unwrap());
+    }
+
+    fn finish_with_msg(&self, msg: String) {
+        self.progress_bar.finish_with_message(msg);
+    }
+
+    pub async fn sync(&self, longest_podcast_name: usize) -> Result<Vec<PathBuf>> {
+        let download_folder = self.download_folder().unwrap();
+        let episodes = self.pending_episodes(&download_folder);
+        self.set_download_style();
 
         let mut file_paths = vec![];
         let mut hook_handles = vec![];
         for (index, episode) in episodes.iter().enumerate() {
-            let fitted_episode_title = {
-                let title_length = 30;
-                let padded = &format!("{:<width$}", episode.title, width = title_length);
-                truncate_string(padded, title_length)
-            };
+            self.show_download_info(episode, index, longest_podcast_name, episodes.len());
 
-            let msg = format!(
-                "{:<podcast_width$} {}/{} {} ",
-                &self.name,
-                index + 1,
-                episodes.len(),
-                &fitted_episode_title,
-                podcast_width = longest_podcast_name + 3
-            );
-
-            pb.set_message(msg);
-            pb.set_position(0);
-
-            let file_path = episode.download(&download_folder, &pb).await.unwrap();
+            let file_path = episode
+                .download(&download_folder, &self.progress_bar)
+                .await
+                .unwrap();
 
             let mp3_tags = (file_path.extension().unwrap() == "mp3").then_some(
                 crate::tags::set_mp3_tags(
@@ -403,16 +451,13 @@ impl Podcast {
         }
 
         if !hook_handles.is_empty() {
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} finishing up download hooks...")
-                    .unwrap(),
-            );
+            self.set_template("{spinner:.green} finishing up download hooks...");
             futures::future::join_all(hook_handles).await;
         }
 
-        pb.set_style(ProgressStyle::default_bar().template("{msg}").unwrap());
-        pb.finish_with_message(format!("✅ {}", &self.name));
+        self.set_template("{msg}");
+        let msg = format!("✅ {}", &self.name);
+        self.finish_with_msg(msg);
 
         Ok(file_paths)
     }

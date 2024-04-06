@@ -41,13 +41,17 @@ fn default_id_pattern() -> String {
     "{guid}".to_string()
 }
 
+fn default_download_path() -> String {
+    "{home}/{appname}/{podname}".to_string()
+}
+
 /// Configuration for a specific podcast.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub url: String,
     pub name_pattern: String,
     pub id_pattern: String,
-    pub download_path: PathBuf,
+    pub download_path: String,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
     pub mode: DownloadMode,
@@ -163,7 +167,7 @@ pub struct GlobalConfig {
     id_pattern: Option<String>,
     max_days: Option<i64>,
     max_episodes: Option<i64>,
-    path: PathBuf,
+    path: String,
     earliest_date: Option<String>,
     #[serde(default)]
     id3_tags: HashMap<String, String>,
@@ -193,13 +197,7 @@ impl Default for GlobalConfig {
             id_pattern: None,
             max_days: None,
             max_episodes: Some(10),
-            path: {
-                let Some(home) = dirs::home_dir() else {
-                    eprintln!("unable to load home directory");
-                    std::process::exit(1);
-                };
-                home.join(crate::APPNAME)
-            },
+            path: default_download_path(),
             earliest_date: None,
             id3_tags: Default::default(),
             download_hook: None,
@@ -224,7 +222,7 @@ pub enum DownloadMode {
 #[serde(deny_unknown_fields)]
 pub struct PodcastConfig {
     url: String,
-    path: Option<PathBuf>,
+    path: Option<String>,
     #[serde(default, deserialize_with = "deserialize_config_option_int")]
     max_days: ConfigOption<i64>,
     #[serde(default, deserialize_with = "deserialize_config_option_int")]

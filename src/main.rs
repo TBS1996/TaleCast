@@ -37,7 +37,7 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let config_path = args.config.unwrap_or_else(|| crate::utils::config_toml());
+    let config_path = args.config.unwrap_or_else(crate::utils::config_toml);
 
     let should_sync =
         args.import.is_none() && args.export.is_none() && args.add.is_empty() && !args.tutorial;

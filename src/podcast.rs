@@ -1,6 +1,7 @@
 use crate::config::{Config, GlobalConfig, PodcastConfig};
 
 use crate::config::DownloadMode;
+use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
 use crate::utils::current_unix;
 use crate::utils::get_guid;
@@ -414,7 +415,7 @@ impl Podcast {
         }
     }
 
-    pub async fn download_episode(&self, episode: &Episode<'_>) -> PathBuf {
+    pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
         let partial_path = {
             let file_name = format!("{}.partial", episode.guid);
             self.download_folder().join(file_name)
@@ -484,41 +485,59 @@ impl Podcast {
 
         std::fs::rename(partial_path, &path).unwrap();
 
-        path
+        DownloadedEpisode {
+            inner: episode,
+            file,
+            path,
+        }
     }
 
-    async fn normalize_episode(&self, episode: &Episode<'_>, file_path: &Path) -> PathBuf {
+    async fn normalize_episode(&self, episode: &mut DownloadedEpisode<'_>) {
+        let file_path = &episode.path;
         let mp3_tags = (file_path.extension().unwrap() == "mp3").then_some(
-            crate::tags::set_mp3_tags(&self.channel, &episode, &file_path, &self.config.id3_tags)
-                .await,
+            crate::tags::set_mp3_tags(
+                &self.channel,
+                &episode.inner,
+                file_path,
+                &self.config.id3_tags,
+            )
+            .await,
         );
 
-        self.rename_file(&file_path, mp3_tags.as_ref(), episode)
+        let new_path = self.rename_file(&file_path, mp3_tags.as_ref(), &episode.inner);
+        episode.path = new_path;
+    }
+
+    fn run_download_hook(
+        &self,
+        episode: &DownloadedEpisode,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        if let Some(script_path) = self.config.download_hook.clone() {
+            let path = episode.path.clone();
+            let handle = tokio::task::spawn_blocking(move || {
+                let _ = std::process::Command::new(script_path).arg(path).output();
+            });
+
+            return Some(handle);
+        }
+
+        None
     }
 
     pub async fn sync(&self, longest_podcast_name: usize) -> Vec<PathBuf> {
         self.set_download_style();
         let episodes = self.pending_episodes();
+        let episode_qty = episodes.len();
 
-        let mut file_paths = vec![];
+        let mut downloaded = vec![];
         let mut hook_handles = vec![];
-        for (index, episode) in episodes.iter().enumerate() {
-            self.show_download_info(episode, index, longest_podcast_name, episodes.len());
-
-            let file_path = self.download_episode(episode).await;
-            let file_path = self.normalize_episode(episode, &file_path).await;
-
-            self.mark_downloaded(episode);
-            file_paths.push(file_path.clone());
-
-            if let Some(script_path) = self.config.download_hook.clone() {
-                let handle = tokio::task::spawn_blocking(move || {
-                    std::process::Command::new(script_path)
-                        .arg(&file_path)
-                        .output()
-                });
-                hook_handles.push(handle);
-            }
+        for (index, episode) in episodes.into_iter().enumerate() {
+            self.show_download_info(&episode, index, longest_podcast_name, episode_qty);
+            let mut downloaded_episode = self.download_episode(episode).await;
+            self.normalize_episode(&mut downloaded_episode).await;
+            self.mark_downloaded(&downloaded_episode.inner);
+            hook_handles.extend(self.run_download_hook(&downloaded_episode));
+            downloaded.push(downloaded_episode);
         }
 
         if !hook_handles.is_empty() {
@@ -530,7 +549,7 @@ impl Podcast {
         let msg = format!("✅ {}", &self.name);
         self.finish_with_msg(msg);
 
-        file_paths
+        downloaded.into_iter().map(|episode| episode.path).collect()
     }
 }
 

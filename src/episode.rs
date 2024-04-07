@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::path::PathBuf;
+
 #[derive(Debug, Clone)]
 pub struct Episode<'a> {
     pub title: &'a str,
@@ -32,4 +35,10 @@ impl<'a> Episode<'a> {
     pub fn get_text_value(&self, tag: &str) -> Option<&str> {
         self.raw.get(tag).unwrap().as_str()
     }
+}
+
+pub struct DownloadedEpisode<'a> {
+    pub inner: Episode<'a>,
+    pub file: File,
+    pub path: PathBuf,
 }

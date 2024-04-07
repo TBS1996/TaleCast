@@ -66,7 +66,6 @@ async fn main() {
         return;
     }
 
-    eprintln!("Checking for new episodes...");
     let mp = (!args.quiet).then_some(MultiProgress::new());
 
     let podcasts = {
@@ -78,17 +77,21 @@ async fn main() {
     };
 
     // Longest podcast name is used for formatting.
-    let Some(longest_name) = podcasts
+    let longest_name = match podcasts
         .iter()
         .map(|podcast| podcast.name().chars().count())
         .max()
-    else {
-        eprintln!("no podcasts configured");
-        std::process::exit(1);
+    {
+        Some(len) => len,
+        None => {
+            eprintln!("no podcasts configured");
+            std::process::exit(1);
+        }
     };
 
     let mut futures = vec![];
 
+    eprintln!("Checking for new episodes...");
     for podcast in podcasts {
         let future = tokio::task::spawn(async move { podcast.sync(longest_name).await });
         futures.push(future);

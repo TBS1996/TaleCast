@@ -4,8 +4,6 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-//use anyhow::Result;
-
 /// Represents a [`PodcastConfig`] value that is either enabled, disabled, or we defer to the
 /// global config.
 #[derive(Clone, Copy, Debug, Default)]

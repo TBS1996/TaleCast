@@ -409,12 +409,6 @@ impl Podcast {
         }
     }
 
-    fn finish_with_msg(&self, msg: String) {
-        if let Some(pb) = &self.progress_bar {
-            pb.finish_with_message(msg);
-        }
-    }
-
     pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
         let partial_path = {
             let file_name = format!("{}.partial", episode.guid);
@@ -512,25 +506,33 @@ impl Podcast {
         &self,
         episode: &DownloadedEpisode,
     ) -> Option<tokio::task::JoinHandle<()>> {
-        if let Some(script_path) = self.config.download_hook.clone() {
-            let path = episode.path.clone();
-            let handle = tokio::task::spawn_blocking(move || {
-                let _ = std::process::Command::new(script_path).arg(path).output();
-            });
+        let script_path = self.config.download_hook.clone()?;
+        let path = episode.path.clone();
 
-            return Some(handle);
+        let handle = tokio::task::spawn_blocking(move || {
+            let _ = std::process::Command::new(script_path).arg(path).output();
+        });
+
+        Some(handle)
+    }
+
+    fn mark_complete(&self) {
+        if let Some(pb) = &self.progress_bar {
+            self.set_template("{msg}");
+            let msg = format!("✅ {}", &self.name);
+            pb.finish_with_message(msg);
         }
-
-        None
     }
 
     pub async fn sync(&self, longest_podcast_name: usize) -> Vec<PathBuf> {
         self.set_download_style();
+
         let episodes = self.pending_episodes();
         let episode_qty = episodes.len();
 
         let mut downloaded = vec![];
         let mut hook_handles = vec![];
+
         for (index, episode) in episodes.into_iter().enumerate() {
             self.show_download_info(&episode, index, longest_podcast_name, episode_qty);
             let mut downloaded_episode = self.download_episode(episode).await;
@@ -545,10 +547,7 @@ impl Podcast {
             futures::future::join_all(hook_handles).await;
         }
 
-        self.set_template("{msg}");
-        let msg = format!("✅ {}", &self.name);
-        self.finish_with_msg(msg);
-
+        self.mark_complete();
         downloaded.into_iter().map(|episode| episode.path).collect()
     }
 }

@@ -8,12 +8,16 @@ use crate::utils::remove_xml_namespaces;
 use crate::utils::truncate_string;
 use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
+use futures_util::StreamExt;
 use id3::TagLike;
 use indicatif::MultiProgress;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
+use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::io::Write as IOWrite;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -322,9 +326,10 @@ impl Podcast {
         }
     }
 
-    fn mark_downloaded(&self, episode: &Episode, path: &Path) {
+    fn mark_downloaded(&self, episode: &Episode) {
+        let path = self.download_folder();
         let id = self.get_id(episode);
-        DownloadedEpisodes::append(&id, path, &episode);
+        DownloadedEpisodes::append(&id, &path, &episode);
     }
 
     fn get_id(&self, episode: &Episode) -> String {
@@ -333,7 +338,8 @@ impl Podcast {
             .replace(" ", "_")
     }
 
-    fn pending_episodes(&self, download_folder: &Path) -> Vec<Episode<'_>> {
+    fn pending_episodes(&self) -> Vec<Episode<'_>> {
+        let download_folder = self.download_folder();
         let mut episodes = self.episodes();
         let episode_qty = episodes.len();
         let downloaded = DownloadedEpisodes::load(&download_folder);
@@ -408,33 +414,101 @@ impl Podcast {
         }
     }
 
+    pub async fn download_episode(&self, episode: &Episode<'_>) -> PathBuf {
+        let partial_path = {
+            let file_name = format!("{}.partial", episode.guid);
+            self.download_folder().join(file_name)
+        };
+
+        let mut downloaded: u64 = 0;
+
+        let mut file = if partial_path.exists() {
+            use std::io::Seek;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&partial_path)
+                .unwrap();
+            downloaded = file.seek(std::io::SeekFrom::End(0)).unwrap();
+            file
+        } else {
+            std::fs::File::create(&partial_path).unwrap()
+        };
+
+        let mut req_builder = Client::new().get(episode.url);
+
+        if downloaded > 0 {
+            let range_header_value = format!("bytes={}-", downloaded);
+            req_builder = req_builder.header(reqwest::header::RANGE, range_header_value);
+        }
+
+        let response = req_builder.send().await.unwrap();
+        let total_size = response.content_length().unwrap_or(0);
+
+        let ext = {
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|ct| ct.to_str().ok())
+                .unwrap_or("application/octet-stream");
+
+            let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
+
+            match extensions.contains(&"mp3") {
+                true => "mp3",
+                false => extensions.first().expect("extension not found."),
+            }
+        };
+
+        if let Some(pb) = &self.progress_bar {
+            pb.set_length(total_size);
+            pb.set_position(downloaded);
+        }
+
+        let mut stream = response.bytes_stream();
+
+        while let Some(item) = stream.next().await {
+            let chunk = item.unwrap();
+            file.write_all(&chunk).unwrap();
+            downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
+
+            if let Some(pb) = &self.progress_bar {
+                pb.set_position(downloaded);
+            }
+        }
+
+        let path = {
+            let mut path = partial_path.clone();
+            path.set_extension(ext);
+            path
+        };
+
+        std::fs::rename(partial_path, &path).unwrap();
+
+        path
+    }
+
+    async fn normalize_episode(&self, episode: &Episode<'_>, file_path: &Path) -> PathBuf {
+        let mp3_tags = (file_path.extension().unwrap() == "mp3").then_some(
+            crate::tags::set_mp3_tags(&self.channel, &episode, &file_path, &self.config.id3_tags)
+                .await,
+        );
+
+        self.rename_file(&file_path, mp3_tags.as_ref(), episode)
+    }
+
     pub async fn sync(&self, longest_podcast_name: usize) -> Vec<PathBuf> {
-        let download_folder = self.download_folder();
-        let episodes = self.pending_episodes(&download_folder);
         self.set_download_style();
+        let episodes = self.pending_episodes();
 
         let mut file_paths = vec![];
         let mut hook_handles = vec![];
         for (index, episode) in episodes.iter().enumerate() {
             self.show_download_info(episode, index, longest_podcast_name, episodes.len());
 
-            let file_path = episode
-                .download(&download_folder, self.progress_bar.as_ref())
-                .await;
+            let file_path = self.download_episode(episode).await;
+            let file_path = self.normalize_episode(episode, &file_path).await;
 
-            let mp3_tags = (file_path.extension().unwrap() == "mp3").then_some(
-                crate::tags::set_mp3_tags(
-                    &self.channel,
-                    &episode,
-                    &file_path,
-                    &self.config.id3_tags,
-                )
-                .await,
-            );
-
-            let file_path = self.rename_file(&file_path, mp3_tags.as_ref(), episode);
-
-            self.mark_downloaded(episode, &download_folder);
+            self.mark_downloaded(episode);
             file_paths.push(file_path.clone());
 
             if let Some(script_path) = self.config.download_hook.clone() {

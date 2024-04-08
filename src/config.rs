@@ -1,3 +1,5 @@
+use crate::patterns::FullPattern;
+use crate::patterns::SourceType;
 use crate::utils::Unix;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -35,21 +37,21 @@ fn default_name_pattern() -> String {
     "{pubdate::%Y-%m-%d} {rss::episode::title}".to_string()
 }
 
-fn default_id_pattern() -> String {
-    "{guid}".to_string()
-}
-
 fn default_download_path() -> String {
     "{home}/{appname}/{podname}".to_string()
+}
+
+fn default_id_pattern() -> String {
+    "{guid}".to_string()
 }
 
 /// Configuration for a specific podcast.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub url: String,
-    pub name_pattern: String,
-    pub id_pattern: String,
-    pub download_path: String,
+    pub name_pattern: FullPattern,
+    pub id_pattern: FullPattern,
+    pub download_path: FullPattern,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
     pub mode: DownloadMode,
@@ -133,15 +135,24 @@ impl Config {
             .path
             .unwrap_or_else(|| global_config.path.clone());
 
+        let download_path = FullPattern::from_str(&download_path, vec![SourceType::Podcast]);
+
         let name_pattern = podcast_config
             .name_pattern
             .into_val(Some(&global_config.name_pattern))
             .unwrap();
 
+        let name_pattern = FullPattern::from_str(&name_pattern, SourceType::all());
+
         let id_pattern = podcast_config
             .id_pattern
             .into_val(global_config.id_pattern.as_ref())
             .unwrap_or_else(|| default_id_pattern());
+
+        let id_pattern = FullPattern::from_str(
+            &id_pattern,
+            vec![SourceType::Id3, SourceType::Podcast, SourceType::Episode],
+        );
 
         let url = podcast_config.url;
 
@@ -180,8 +191,8 @@ impl GlobalConfig {
             let mut f = std::fs::File::create(&p).unwrap();
             f.write_all(s.as_bytes()).unwrap();
         }
-        let str = std::fs::read_to_string(p).unwrap();
 
+        let str = std::fs::read_to_string(p).unwrap();
         toml::from_str(&str).unwrap()
     }
 }

@@ -1,4 +1,4 @@
-use crate::episode::Episode;
+use crate::episode::DownloadedEpisode;
 use chrono::Datelike;
 use id3::TagLike;
 use std::collections::HashMap;
@@ -42,22 +42,19 @@ async fn add_picture(tag: &mut id3::Tag, picture_type: id3::frame::PictureType, 
 }
 
 fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
-    for pic in tag.pictures() {
-        if pic.picture_type == ty {
-            return true;
-        }
-    }
-
-    false
+    tag.pictures().any(|pic| pic.picture_type == ty)
 }
 
 pub async fn set_mp3_tags<'a>(
     channel: &'a rss::Channel,
-    episode: &'a Episode<'a>,
-    file_path: &std::path::Path,
+    episode: &'a DownloadedEpisode<'a>,
     custom_tags: &HashMap<String, String>,
 ) -> id3::Tag {
-    let mut tags = id3::Tag::read_from_path(&file_path).unwrap();
+    let file_path = &episode.path();
+    let episode = &episode.inner();
+
+    let mut tags = id3::Tag::read_from_path(file_path).unwrap();
+
     for (id, value) in custom_tags {
         tags.set_text(id, value);
     }
@@ -174,8 +171,7 @@ pub async fn set_mp3_tags<'a>(
         tags.set_text(Id3Tag::PODCAST_ID, episode.guid);
     }
 
-    tags.write_to_path(&file_path, id3::Version::Id3v24)
-        .unwrap();
+    tags.write_to_path(file_path, id3::Version::Id3v24).unwrap();
 
     tags
 }

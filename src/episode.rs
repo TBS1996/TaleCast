@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -38,7 +38,39 @@ impl<'a> Episode<'a> {
 }
 
 pub struct DownloadedEpisode<'a> {
-    pub inner: Episode<'a>,
-    pub file: File,
-    pub path: PathBuf,
+    inner: Episode<'a>,
+    path: PathBuf,
+}
+
+impl<'a> DownloadedEpisode<'a> {
+    pub fn new(inner: Episode<'a>, path: PathBuf) -> DownloadedEpisode<'a> {
+        Self { inner, path }
+    }
+
+    pub fn inner(&self) -> &Episode<'a> {
+        &self.inner
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn rename(&mut self, new_name: String) {
+        let new_path = match self.path.extension() {
+            Some(extension) => {
+                let mut new_path = self.path.with_file_name(new_name);
+                new_path.set_extension(extension);
+                new_path
+            }
+            None => self.path.with_file_name(new_name),
+        };
+
+        std::fs::rename(&self.path, &new_path).unwrap();
+    }
+}
+
+impl<'a> AsRef<Episode<'a>> for DownloadedEpisode<'a> {
+    fn as_ref(&self) -> &Episode<'a> {
+        &self.inner
+    }
 }

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 mod config;
 mod episode;
 mod opml;
+mod patterns;
 mod podcast;
 mod tags;
 mod utils;

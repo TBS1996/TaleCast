@@ -2,8 +2,10 @@ use quick_xml::{
     events::{BytesEnd, BytesStart, Event},
     Reader, Writer,
 };
+use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::Write as IOWrite;
 use std::path::PathBuf;
@@ -222,9 +224,6 @@ pub fn truncate_string(s: &str, max_width: usize) -> String {
     truncated
 }
 
-use serde::Serialize;
-use std::collections::HashMap;
-
 #[derive(Serialize)]
 struct BasicPodcast {
     url: String,
@@ -263,6 +262,21 @@ pub fn append_podcasts(name_and_url: Vec<(String, String)>) {
     };
 
     std::fs::write(&path, new_config).unwrap();
+}
+
+pub async fn download_text(url: &str) -> String {
+    reqwest::Client::new()
+        .get(url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+        )
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
 }
 
 #[cfg(test)]

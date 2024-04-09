@@ -1,9 +1,9 @@
+use crate::config::GlobalConfig;
 use opml::{Body, Head, Outline, OPML};
 use std::io::Write as IoWrite;
 use std::path::Path;
 
-pub async fn export(p: &Path, config_path: &Path, filter: Option<&regex::Regex>) {
-    let global_config = crate::GlobalConfig::load(config_path);
+pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<&regex::Regex>) {
     let podcasts = crate::Podcast::load_all(&global_config, filter, None).await;
 
     let mut opml = OPML {

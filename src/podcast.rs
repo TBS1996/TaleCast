@@ -11,7 +11,6 @@ use crate::utils::truncate_string;
 use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
 use chrono::TimeZone;
-use chrono::Utc;
 use futures_util::StreamExt;
 use indicatif::MultiProgress;
 use indicatif::ProgressBar;
@@ -115,6 +114,7 @@ impl Podcast {
 
         eprintln!("syncing {}/{} podcasts", podcasts.len(), podcast_qty);
 
+        podcasts.sort_by_key(|pod| pod.name.clone());
         podcasts
     }
 

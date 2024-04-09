@@ -75,7 +75,8 @@ impl Podcast {
         let configs: HashMap<String, PodcastConfig> = {
             let path = crate::utils::podcasts_toml();
             if !path.exists() {
-                eprintln!("You need to create a 'podcasts.toml' file to get started");
+                eprintln!("No podcasts configured!");
+                eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the podcasts.toml file.", crate::APPNAME);
                 std::process::exit(1);
             }
             let config_str = std::fs::read_to_string(path).unwrap();

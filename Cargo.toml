@@ -1,6 +1,6 @@
 [package]
 name = "talecast"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "Simple CLI podcatcher"
 license = "MIT"
@@ -12,7 +12,6 @@ chrono = "0.4.35"
 rss = "2.0.7"
 toml = "0.5"
 serde = { version = "1.0", features = ["derive"] }
-#anyhow = "1.0.81"
 dirs = "5.0.1"
 indicatif = "0.17.8"
 reqwest = { version = "0.12.2", features = ["stream"] }
@@ -31,4 +30,3 @@ quickxml_to_serde = "0.6.0"
 strum = "0.21"
 strum_macros = "0.21"
 uuid = "1.8.0"
-

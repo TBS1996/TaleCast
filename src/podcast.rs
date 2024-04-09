@@ -10,6 +10,8 @@ use crate::utils::remove_xml_namespaces;
 use crate::utils::truncate_string;
 use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
+use chrono::TimeZone;
+use chrono::Utc;
 use futures_util::StreamExt;
 use indicatif::MultiProgress;
 use indicatif::ProgressBar;
@@ -202,8 +204,13 @@ impl Podcast {
 
                 let episode_too_old = || {
                     earliest_date.as_ref().is_some_and(|date| {
-                        chrono::DateTime::parse_from_rfc3339(&date)
-                            .unwrap()
+                        chrono::Utc
+                            .from_utc_datetime(
+                                &chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                                    .unwrap()
+                                    .and_hms_opt(0, 0, 0)
+                                    .unwrap(),
+                            )
                             .timestamp()
                             > episode.published
                     })

@@ -1,9 +1,9 @@
-# CringeCast
+# TaleCast
 
 Simple CLI podcatcher.
 
 
-https://github.com/TBS1996/CringeCast/assets/56874491/ca3b08e0-b509-44a2-a214-5b7c20a0f609
+https://github.com/TBS1996/TaleCast/assets/56874491/ca3b08e0-b509-44a2-a214-5b7c20a0f609
 
 ## why?
 
@@ -21,15 +21,15 @@ I dislike databases for simple terminal programs. Other programs tend to use a d
 
 ## how to install?
 
-you gotta have rust installed atm. You can do `cargo install cringecast` or clone the repo and run it.
+you gotta have rust installed atm. You can do `cargo install talecast` or clone the repo and run it.
 
 ## how to configure it?
 
 the global config is located in:
-`~/.config/cringecast/config.toml`
+`~/.config/talecast/config.toml`
 
 you put your podcasts in this file:
-~/.config/cringecast/podcasts.toml`
+~/.config/talecast/podcasts.toml`
 
 example podcasts.toml:
 
@@ -97,11 +97,4 @@ path="/foo/bar/baz"
 - re-download episodes that have already been downloaded?
 
 delete or modify the `.downloaded` file in the folder where the episodes are downloaded.
-
-## why the name?
-
-'broadcast' in norwegian means kringkasting. I thought the "kasting" sounds the 'cast' in 'podcast'. while the 'kring' part sounds like cringe. so, cringecast. pretty dumb i know.
-
-
-
 

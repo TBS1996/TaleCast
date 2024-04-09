@@ -55,7 +55,7 @@ pub fn tutorial() -> &'static str {
 # Get started
 
 1. find a podcast you like, for example from `https://podcastindex.org`.
-2. click 'copy rss'. Then open or create the `podcasts.toml` file in your `~/.config/cringecast/` directory.
+2. click 'copy rss'. Then open or create the `podcasts.toml` file in your `~/.config/talecast/` directory.
 3. format it as so:
 
 [podcast_name]

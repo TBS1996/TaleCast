@@ -12,7 +12,7 @@ mod podcast;
 mod tags;
 mod utils;
 
-pub const APPNAME: &'static str = "cringecast";
+pub const APPNAME: &'static str = "talecast";
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

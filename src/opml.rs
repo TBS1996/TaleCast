@@ -8,7 +8,7 @@ pub async fn export(p: &Path, config_path: &Path, filter: Option<&regex::Regex>)
 
     let mut opml = OPML {
         head: Some(Head {
-            title: Some("Cringecast Podcast Feeds".to_string()),
+            title: Some("TaleCast Podcast Feeds".to_string()),
             date_created: Some(chrono::Utc::now().to_rfc2822()),
             ..Head::default()
         }),

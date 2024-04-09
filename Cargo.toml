@@ -1,6 +1,6 @@
 [package]
-name = "cringecast"
-version = "0.1.6"
+name = "talecast"
+version = "0.1.7"
 edition = "2021"
 description = "Simple CLI podcatcher"
 license = "MIT"
@@ -30,4 +30,5 @@ quick-xml = "0.31.0"
 quickxml_to_serde = "0.6.0"
 strum = "0.21"
 strum_macros = "0.21"
+uuid = "1.8.0"
 

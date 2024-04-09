@@ -6,7 +6,67 @@ use crate::podcast::Podcast;
 
 use regex::Regex;
 
-#[derive(PartialEq)]
+#[derive(Debug, Clone)]
+pub struct FullPattern(Vec<Segment>);
+
+impl FullPattern {
+    pub fn from_str(s: &str, available_sources: Vec<SourceType>) -> Self {
+        let mut segments: Vec<Segment> = vec![];
+        let mut text = String::new();
+        let mut pattern = String::new();
+
+        let mut is_inside = false;
+
+        for c in s.chars() {
+            if c == '}' {
+                assert!(is_inside);
+                let text_pattern = std::mem::take(&mut pattern);
+                let pattern = Pattern::from_str(&text_pattern);
+                if let Some(required_source) = pattern.required_source() {
+                    if !available_sources.contains(&required_source) {
+                        eprintln!("CONFIGURATION ERROR");
+                        eprintln!(
+                            "invalid pattern: {}\n{:?} requires the \"{:?}\"-source which is not available for this configuration setting.",
+                            s, text_pattern, required_source
+                        );
+
+                        std::process::exit(1);
+                    }
+                }
+                let segment = Segment::Pattern(pattern);
+                segments.push(segment);
+                is_inside = false;
+            } else if c == '{' {
+                assert!(!is_inside);
+                let text = std::mem::take(&mut text);
+                let segment = Segment::Text(text);
+                segments.push(segment);
+                is_inside = true;
+            } else {
+                if is_inside {
+                    pattern.push(c);
+                } else {
+                    text.push(c);
+                }
+            }
+        }
+
+        assert!(!is_inside);
+        if !text.is_empty() {
+            segments.push(Segment::Text(text));
+        }
+
+        Self(segments)
+    }
+}
+
+#[derive(Clone, Debug)]
+enum Segment {
+    Text(String),
+    Pattern(Pattern),
+}
+
+#[derive(PartialEq, Debug)]
 pub enum SourceType {
     Episode,
     Podcast,
@@ -56,73 +116,20 @@ impl<'a> DataSources<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct FullPattern(Vec<Segment>);
-
-impl FullPattern {
-    pub fn from_str(s: &str, available_sources: Vec<SourceType>) -> Self {
-        let mut segments: Vec<Segment> = vec![];
-        let mut text = String::new();
-        let mut pattern = String::new();
-
-        let mut is_inside = false;
-
-        for c in s.chars() {
-            if c == '}' {
-                assert!(is_inside);
-                let pattern = std::mem::take(&mut pattern);
-                let pattern = Pattern::from_str(&pattern).unwrap();
-                if let Some(required_source) = pattern.required_source() {
-                    if !available_sources.contains(&required_source) {
-                        panic!("invalid tag");
-                    }
-                }
-                let segment = Segment::Pattern(pattern);
-                segments.push(segment);
-                is_inside = false;
-            } else if c == '{' {
-                assert!(!is_inside);
-                let text = std::mem::take(&mut text);
-                let segment = Segment::Text(text);
-                segments.push(segment);
-                is_inside = true;
-            } else {
-                if is_inside {
-                    pattern.push(c);
-                } else {
-                    text.push(c);
-                }
-            }
-        }
-
-        assert!(!is_inside);
-        if !text.is_empty() {
-            segments.push(Segment::Text(text));
-        }
-
-        Self(segments)
-    }
-}
-
-#[derive(Clone, Debug)]
-enum Segment {
-    Text(String),
-    Pattern(Pattern),
-}
-
-#[derive(Debug, Clone)]
 enum Pattern {
     Unit(UnitPattern),
     Data(DataPattern),
 }
 
 impl Pattern {
-    fn from_str(s: &str) -> Option<Self> {
+    fn from_str(s: &str) -> Self {
         if let Some(unit) = UnitPattern::from_str(s) {
-            Some(Self::Unit(unit))
+            Self::Unit(unit)
         } else if let Some(data) = DataPattern::from_str(s) {
-            Some(Self::Data(data))
+            Self::Data(data)
         } else {
-            None
+            eprintln!("invalid pattern: \"{}\"", s);
+            std::process::exit(1);
         }
     }
 

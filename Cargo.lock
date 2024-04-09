@@ -270,33 +270,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cringecast"
-version = "0.1.6"
-dependencies = [
- "chrono",
- "clap",
- "dirs",
- "futures",
- "futures-util",
- "id3",
- "indicatif",
- "mime_guess",
- "opml",
- "quick-xml 0.31.0",
- "quickxml_to_serde",
- "regex",
- "reqwest",
- "rss",
- "serde",
- "serde_json",
- "strum",
- "strum_macros",
- "tokio",
- "toml",
- "unicode-width",
-]
-
-[[package]]
 name = "darling"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1538,6 +1511,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "talecast"
+version = "0.1.7"
+dependencies = [
+ "chrono",
+ "clap",
+ "dirs",
+ "futures",
+ "futures-util",
+ "id3",
+ "indicatif",
+ "mime_guess",
+ "opml",
+ "quick-xml 0.31.0",
+ "quickxml_to_serde",
+ "regex",
+ "reqwest",
+ "rss",
+ "serde",
+ "serde_json",
+ "strum",
+ "strum_macros",
+ "tokio",
+ "toml",
+ "unicode-width",
+ "uuid",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1759,6 +1760,12 @@ name = "utf8parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
+
+[[package]]
+name = "uuid"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a183cf7feeba97b4dd1c0d46788634f6221d87fa961b305bed08c851829efcc0"
 
 [[package]]
 name = "vcpkg"

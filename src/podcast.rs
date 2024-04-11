@@ -398,7 +398,7 @@ impl Podcast {
         &self,
         episode: &DownloadedEpisode,
     ) -> Option<tokio::task::JoinHandle<()>> {
-        let script_path = self.config.download_hook.clone()?;
+        let script_path = self.config.download_hook.clone().unwrap();
         let path = episode.path().to_owned();
 
         let handle = tokio::task::spawn_blocking(move || {

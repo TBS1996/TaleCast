@@ -17,7 +17,7 @@ pub const NAMESPACE_ALTER: &'static str = "__placeholder__";
 
 #[allow(dead_code)]
 pub fn log<S: AsRef<str>>(message: S) {
-    let log_file_path = default_download_path();
+    let log_file_path = default_download_path().join("logfile");
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)

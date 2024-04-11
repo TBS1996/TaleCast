@@ -66,6 +66,7 @@ impl<'a> DownloadedEpisode<'a> {
         };
 
         std::fs::rename(&self.path, &new_path).unwrap();
+        self.path = new_path;
     }
 }
 

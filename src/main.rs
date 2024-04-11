@@ -31,8 +31,53 @@ struct Args {
     filter: Option<regex::Regex>,
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
-    #[arg(short, long)]
-    quiet: bool,
+}
+
+impl From<Args> for Action {
+    fn from(val: Args) -> Self {
+        let filter = val.filter;
+        let print = val.print;
+
+        if val.tutorial {
+            return Self::Tutorial;
+        }
+
+        if let Some(path) = val.import {
+            return Self::Import { path };
+        }
+
+        if let Some(path) = val.export {
+            return Self::Export { path, filter };
+        }
+
+        if !val.add.is_empty() {
+            assert_eq!(val.add.len(), 2);
+            let url = val.add[0].to_string();
+            let name = val.add[1].to_string();
+            return Self::Add { url, name };
+        }
+
+        Self::Sync { filter, print }
+    }
+}
+
+enum Action {
+    Import {
+        path: PathBuf,
+    },
+    Export {
+        path: PathBuf,
+        filter: Option<regex::Regex>,
+    },
+    Tutorial,
+    Add {
+        url: String,
+        name: String,
+    },
+    Sync {
+        filter: Option<regex::Regex>,
+        print: bool,
+    },
 }
 
 #[tokio::main]
@@ -40,61 +85,50 @@ async fn main() {
     let args = Args::parse();
 
     let global_config = {
-        let config_path = args.config.unwrap_or_else(crate::utils::config_toml);
+        let config_path = args
+            .config
+            .clone()
+            .unwrap_or_else(crate::utils::config_toml);
         GlobalConfig::load(&config_path)
     };
 
-    let should_sync =
-        args.import.is_none() && args.export.is_none() && args.add.is_empty() && !args.tutorial;
+    match Action::from(args) {
+        Action::Tutorial => print!("{}", crate::utils::tutorial()),
+        Action::Import { path } => crate::opml::import(&path),
+        Action::Export { path, filter } => {
+            crate::opml::export(&path, &global_config, filter.as_ref()).await
+        }
+        Action::Add { name, url } => {
+            crate::utils::append_podcasts(vec![(name.clone(), url)]);
+            eprintln!("'{}' added!", name);
+        }
+        Action::Sync { filter, print } => {
+            eprintln!("Checking for new episodes...");
 
-    if args.tutorial {
-        print!("{}", crate::utils::tutorial());
-    };
+            let mp = MultiProgress::new();
 
-    if let Some(path) = args.import {
-        crate::opml::import(&path);
-    }
+            let podcasts = Podcast::load_all(&global_config, filter.as_ref(), Some(&mp)).await;
+            let longest_name = longest_podcast_name_len(&podcasts); // Used for formatting.
 
-    if let Some(path) = args.export {
-        crate::opml::export(&path, &global_config, args.filter.as_ref()).await;
-    }
+            let mut futures = vec![];
+            for podcast in podcasts {
+                let future = tokio::task::spawn(async move { podcast.sync(longest_name).await });
+                futures.push(future);
+            }
 
-    if !args.add.is_empty() {
-        assert_eq!(args.add.len(), 2);
-        let url = &args.add[0];
-        let name = &args.add[1];
-        crate::utils::append_podcasts(vec![(name.to_string(), url.to_string())]);
-        eprintln!("'{}' added!", name);
-    }
+            let mut paths = vec![];
+            for future in futures {
+                paths.extend(future.await.unwrap());
+            }
 
-    if !should_sync {
-        return;
-    }
+            eprintln!("Syncing complete!");
+            eprintln!("{} episodes downloaded.", paths.len());
 
-    let mp = (!args.quiet).then_some(MultiProgress::new());
-
-    let podcasts = Podcast::load_all(&global_config, args.filter.as_ref(), mp.as_ref()).await;
-    let longest_name = longest_podcast_name_len(&podcasts);
-
-    let mut futures = vec![];
-
-    eprintln!("Checking for new episodes...");
-    for podcast in podcasts {
-        let future = tokio::task::spawn(async move { podcast.sync(longest_name).await });
-        futures.push(future);
-    }
-
-    let mut paths = vec![];
-    for future in futures {
-        paths.extend(future.await.unwrap());
-    }
-
-    eprintln!("Syncing complete!");
-    eprintln!("{} episodes downloaded.", paths.len());
-
-    if args.print {
-        for path in paths {
-            println!("\"{}\"", path.to_str().unwrap());
+            if print {
+                for path in paths {
+                    println!("\"{}\"", path.to_str().unwrap());
+                }
+            }
         }
     }
 }

@@ -29,15 +29,10 @@ fn xml_to_value(xml: &str) -> Value {
     xml_string_to_json(xml, &conf).unwrap()
 }
 
-fn init_podcast_status(mp: &MultiProgress, name: &str) -> ProgressBar {
+fn init_podcast_status(mp: &MultiProgress, _name: &str) -> ProgressBar {
     let pb = mp.add(ProgressBar::new_spinner());
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green}  {msg}")
-            .unwrap(),
-    );
-    pb.set_message(name.to_owned());
-    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    //pb.set_message(name.to_owned());
+    //pb.enable_steady_tick(std::time::Duration::from_millis(100));
     pb
 }
 
@@ -86,6 +81,7 @@ impl Podcast {
 
         let podcast_qty = configs.len();
         let mut podcasts = vec![];
+        eprintln!("fetching podcasts...");
         for (name, config) in configs {
             if let Some(re) = filter {
                 if !re.is_match(&name) {
@@ -270,6 +266,7 @@ impl Podcast {
                     .template("{spinner:.green} {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")
                     .unwrap(),
             );
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
         }
     }
 

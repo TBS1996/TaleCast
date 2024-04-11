@@ -126,7 +126,7 @@ async fn main() {
 
             if print {
                 for path in paths {
-                    println!("\"{}\"", path.to_str().unwrap());
+                    println!("{}", path.to_str().unwrap());
                 }
             }
         }

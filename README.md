@@ -2,7 +2,7 @@
 
 Simple CLI podcast manager.
 
-Check this video for a quick introduction:
+Check this video for a quick introduction:  
 [![Watch the video](https://img.youtube.com/vi/TKoToA6MGdY/0.jpg)](https://www.youtube.com/watch?v=TKoToA6MGdY)
 
 ## Main features

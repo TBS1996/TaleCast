@@ -2,6 +2,8 @@
 
 Simple CLI podcast manager.
 
+If you want to sync with your phone you could consider using syncthing. 
+
 Check this video for a quick introduction:  
 [![Watch the video](https://img.youtube.com/vi/TKoToA6MGdY/0.jpg)](https://www.youtube.com/watch?v=TKoToA6MGdY)
 

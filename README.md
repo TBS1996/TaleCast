@@ -25,7 +25,8 @@ Check this video for a quick introduction:
 
 ## how to install?
 
-You'll need to have rust installed. Either download from cargo `cargo install talecast` or just clone the repo.
+You'll need to have rust installed. Either download from cargo `cargo install talecast` or just clone the repo.  
+  
 I plan to put it on the nix store soon, not sure if I'm gonna bother with the other package managers sinceim less familiar. If someone wants to publish there then that'd be great!
 
 ## how to configure it?
@@ -34,7 +35,7 @@ the global config is located in:
 `~/.config/talecast/config.toml`
 
 you put your podcasts in this file:
-~/.config/talecast/podcasts.toml`
+`~/.config/talecast/podcasts.toml`
 
 ## how to add podcasts?
 

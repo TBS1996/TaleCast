@@ -1,27 +1,32 @@
 # TaleCast
 
-Simple CLI podcatcher.
+Simple CLI podcast manager.
 
+Check this video for a quick introduction:
+[![Watch the video](https://img.youtube.com/vi/TKoToA6MGdY/0.jpg)](https://www.youtube.com/watch?v=TKoToA6MGdY)
 
-https://github.com/TBS1996/TaleCast/assets/56874491/ca3b08e0-b509-44a2-a214-5b7c20a0f609
+## Main features
 
-## why?
-
-i had a few issues that caused me to write this program.
-
-1. Bad filenames.
-
-I use syncthing to sync to my phone and from there i use a normal audio player. The filenames are usually unintelligble so I wanted a podcatcher that renamed the filename to the title of the episode.
-
-2. Better control over which episodes to download.
-Using other apps they always wanted me to download the entire catalogue or some arbitrary number. That's annoying. When I add a new podcast I usually just want a few episodes in the past and then to follow it from there. So in this program it's easy to write a global default of how old the episodes can be, and it can be overridden per podcast. 
-
-3. Avoid databases.
-I dislike databases for simple terminal programs. Other programs tend to use a database to save which episodes have already been downloaded. My approach is a simple textfile ".downloaded" that keeps a list of the GUID's of downloaded episodes. This means if you move files or delete them, they won't be downloaded again, unless you delete the .downloaded file or some lines within it.
+- Easy to configure which episodes to be downloaded
+- Mp3 tags normalization
+- Granular configuration control of each podcast
+- Backlog mode to catch up on old episodes at your own pace
+- Download hook for post-download processing
+- OPML export
+- OPML import
+- Git-friendly download-tracker (textfile where 1 episode == 1 line)
+- Advanced pattern-matching for naming your files (and more!)
+- Set Custom ip3v2 tags
+- Parallel downloads
+- Partial download support
+- Downloaded paths can be printed to stdout for easy piping
+- Pretty graphics
+   
 
 ## how to install?
 
-you gotta have rust installed atm. You can do `cargo install talecast` or clone the repo and run it.
+You'll need to have rust installed. Either download from cargo `cargo install talecast` or just clone the repo.
+I plan to put it on the nix store soon, not sure if I'm gonna bother with the other package managers sinceim less familiar. If someone wants to publish there then that'd be great!
 
 ## how to configure it?
 
@@ -31,70 +36,10 @@ the global config is located in:
 you put your podcasts in this file:
 ~/.config/talecast/podcasts.toml`
 
-example podcasts.toml:
+## how to add podcasts?
 
-```toml
-[freakonomics]
-url="https://feeds.simplecast.com/Y8lFbOT4"
+`talecast --add $PODCAST_URL $PODCAST_NAME`
 
-[aftenpodden]
-url="https://podcast.stream.schibsted.media/ap/100168?podcast"
-```
+or modify the `podcasts.toml` file directly. 
 
-## how do i...?
-
-- set default max episodes to download to 20, but disable the cap for a specific podcast?
-
-
-config.toml:
-```toml 
-max_episodes=20
-```
-
-podcasts.toml:
-```toml 
-[freakonomics] # since no max_episodes value is set, it will use the one in config.toml.
-url="https://feeds.simplecast.com/Y8lFbOT4" 
-
-[rest_is_history]
-url="https://feeds.megaphone.fm/GLT4787413333"
-max_episodes=false
-```
-
-- set a limit for how old an episode is before i download?
-
-
-```toml 
-[freakonomics] 
-url="https://feeds.simplecast.com/Y8lFbOT4" 
-max_days=30 # default value can be chosen in config.toml
-```
-
-- start from the beginning and be served an episode from the backlog every 5 days?
-
-```toml
-[rest_is_history]
-url="https://feeds.megaphone.fm/GLT4787413333"
-backlog_start="2024-03-27" # you put the current date in the backlog_start. 
-backlog_interval=5
-```
-
-- only download episodes published after 5. november 2023?
-
-```toml
-[rest_is_history]
-url="https://feeds.megaphone.fm/GLT4787413333"
-earliest_date="2023-11-03"
-```
-
-- change the location of where episodes are downloaded?
-
-config.toml:
-```toml
-path="/foo/bar/baz"
-```
-
-- re-download episodes that have already been downloaded?
-
-delete or modify the `.downloaded` file in the folder where the episodes are downloaded.
-
+Check out the video for more details. But more documentation to come!

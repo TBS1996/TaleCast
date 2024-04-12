@@ -15,21 +15,46 @@ mod utils;
 pub const APPNAME: &'static str = "talecast";
 
 #[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[command(
+    name = "TaleCast",
+    version,
+    about = "A simple CLI podcast manager.",
+    long_about = None
+)]
 struct Args {
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(
+        short,
+        long,
+        value_name = "FILE",
+        help = "Import podcasts from an OPML file"
+    )]
     import: Option<PathBuf>,
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(
+        short,
+        long,
+        value_name = "FILE",
+        help = "Export your podcasts to an OPML file"
+    )]
     export: Option<PathBuf>,
-    #[arg(short, long)]
+    #[arg(short, long, help = "Print the downloaded paths to stdout")]
     print: bool,
-    #[arg(long)]
-    tutorial: bool,
-    #[arg(short, long, num_args = 2)]
+    #[arg(short, long, num_args = 2,
+value_names = &["URL", "NAME"],
+
+          help = "Add new podcast")]
     add: Vec<String>,
-    #[arg(short, long)]
+    #[arg(
+        short,
+        long,
+        help = "Filter which podcasts to sync or export with a regex pattern"
+    )]
     filter: Option<regex::Regex>,
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(
+        short,
+        long,
+        value_name = "FILE",
+        help = "Override the path to the config file"
+    )]
     config: Option<PathBuf>,
 }
 
@@ -37,10 +62,6 @@ impl From<Args> for Action {
     fn from(val: Args) -> Self {
         let filter = val.filter;
         let print = val.print;
-
-        if val.tutorial {
-            return Self::Tutorial;
-        }
 
         if let Some(path) = val.import {
             return Self::Import { path };
@@ -69,7 +90,6 @@ enum Action {
         path: PathBuf,
         filter: Option<regex::Regex>,
     },
-    Tutorial,
     Add {
         url: String,
         name: String,
@@ -93,7 +113,6 @@ async fn main() {
     };
 
     match Action::from(args) {
-        Action::Tutorial => print!("{}", crate::utils::tutorial()),
         Action::Import { path } => crate::opml::import(&path),
         Action::Export { path, filter } => {
             crate::opml::export(&path, &global_config, filter.as_ref()).await

@@ -52,9 +52,9 @@ Check out the video for more details. But more documentation to come!
 
 | setting          | description                                                       | per-podcast | global | default                                     |
 |------------------|-------------------------------------------------------------------|-------------|--------|---------------------------------------------|
-| url              | the url to the xml file of the podcast                            | ✅           | ❌      | (no default, required field)                |
+| url              | the url to the xml file of the podcast                            | ✅           | ❌      | (no default, field is required)            |
 | id_pattern       | episode ID used for determining if an episode has been downloaded | ✅           | ✅      | "{guid}"                                    |
-| name_pattern     | pattern determining name of episode files                         | ❌           | ✅      | "{pubdate::%Y-%m-%d} {rss::episode::title}" |
+| name_pattern     | pattern determining name of episode files                         | ✅           | ✅      | "{pubdate::%Y-%m-%d} {rss::episode::title}" |
 | path             | the path where episodes will be downloaded                        | ✅           | ✅      | "{home}/{appname}/{podname}"                |
 | max_days         | episodes older than this won't be downloaded                      | ✅           | ✅      | None                                        |
 | max_episodes     | only this amount of episodes from past will be downloaded         | ✅           | ✅      | None                                        |

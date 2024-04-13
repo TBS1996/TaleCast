@@ -50,21 +50,22 @@ Check out the video for more details. But more documentation to come!
 
 ## what are the config options?
 
-| setting          | description                                                       | per-podcast | global | default                                     |
-|------------------|-------------------------------------------------------------------|-------------|--------|---------------------------------------------|
-| url              | the url to the xml file of the podcast                            | ✅           | ❌      | (no default, field is required)            |
-| id_pattern       | episode ID used for determining if an episode has been downloaded | ✅           | ✅      | "{guid}"                                    |
-| name_pattern     | pattern determining name of episode files                         | ✅           | ✅      | "{pubdate::%Y-%m-%d} {rss::episode::title}" |
-| path             | the path where episodes will be downloaded                        | ✅           | ✅      | "{home}/{appname}/{podname}"                |
-| max_days         | episodes older than this won't be downloaded                      | ✅           | ✅      | None                                        |
-| max_episodes     | only this amount of episodes from past will be downloaded         | ✅           | ✅      | None                                        |
-| earliest_date    | episodes published before this won't be downloaded                | ✅           | ✅      | None                                        |
-| backlog_start    | start date of when backlog mode calculates from                   | ✅           | ❌      | None                                        |
-| backlog_interval | how many days pass between each new episode in backlog mode       | ✅           | ❌      | None                                        |
-| download_hook    | path to script that will run after an episode is downloaded       | ✅           | ✅      | None                                        |
-| id3_tags         | custom tags that mp3 files will be annotated with                 | ✅           | ✅      | [ ]                                          |
+The way configuration works is that you can set a 'global value' that applies to all podcasts in the `config.toml` file, however, you can override them by 
+setting the same setting under a given podcast in the `podcasts.toml` file. If a value is not required, you can also disable it for a specific podcast with "$SETTING = false".
 
-
+| setting          | description                                                       | required | per-podcast | global | default                                     |
+|------------------|-------------------------------------------------------------------|----------|-------------|--------|---------------------------------------------|
+| id_pattern       | episode ID used for determining if an episode has been downloaded | yes      | ✅           | ✅      | "{guid}"                                    |
+| name_pattern     | pattern determining name of episode files                         | yes      | ❌           | ✅      | "{pubdate::%Y-%m-%d} {rss::episode::title}" |
+| url              | the url to the xml file of the podcast                            | yes      | ✅           | ❌      | (no default, must be specified)             |
+| path             | the path where episodes will be downloaded                        | yes      | ✅           | ✅      | "{home}/{appname}/{podname}"                |
+| max_days         | episodes older than this won't be downloaded                      | no       | ✅           | ✅      | None                                        |
+| max_episodes     | only this amount of episodes from past will be downloaded         | no       | ✅           | ✅      | None                                        |
+| earliest_date    | episodes published before this won't be downloaded                | no       | ✅           | ✅      | None                                        |
+| backlog_start    | start date of when backlog mode calculates from                   | no       | ✅           | ❌      | None                                        |
+| backlog_interval | how many days pass between each new episode in backlog mode       | no       | ✅           | ❌      | None                                        |
+| download_hook    | path to script that will run after an episode is downloaded       | no       | ✅           | ✅      | None                                        |
+| id3_tags         | custom tags that mp3 files will be annotated with                 | no       | ✅           | ✅      | []                                          |
 
 ## what are these weird curly brace patterns?
 

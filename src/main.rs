@@ -1,6 +1,7 @@
 use crate::config::GlobalConfig;
 use crate::podcast::Podcast;
 use clap::Parser;
+use futures::future;
 use indicatif::MultiProgress;
 use std::path::PathBuf;
 
@@ -63,12 +64,22 @@ impl From<Args> for Action {
         let filter = val.filter;
         let print = val.print;
 
+        let global_config = || {
+            let config_path = val.config.clone().unwrap_or_else(crate::utils::config_toml);
+            GlobalConfig::load(&config_path)
+        };
+
         if let Some(path) = val.import {
             return Self::Import { path };
         }
 
         if let Some(path) = val.export {
-            return Self::Export { path, filter };
+            let config = global_config();
+            return Self::Export {
+                path,
+                filter,
+                config,
+            };
         }
 
         if !val.add.is_empty() {
@@ -78,7 +89,13 @@ impl From<Args> for Action {
             return Self::Add { url, name };
         }
 
-        Self::Sync { filter, print }
+        let config = global_config();
+
+        Self::Sync {
+            filter,
+            print,
+            config,
+        }
     }
 }
 
@@ -89,6 +106,7 @@ enum Action {
     Export {
         path: PathBuf,
         filter: Option<regex::Regex>,
+        config: GlobalConfig,
     },
     Add {
         url: String,
@@ -96,6 +114,7 @@ enum Action {
     },
     Sync {
         filter: Option<regex::Regex>,
+        config: GlobalConfig,
         print: bool,
     },
 }
@@ -104,47 +123,48 @@ enum Action {
 async fn main() {
     let args = Args::parse();
 
-    let global_config = {
-        let config_path = args
-            .config
-            .clone()
-            .unwrap_or_else(crate::utils::config_toml);
-        GlobalConfig::load(&config_path)
-    };
-
     match Action::from(args) {
-        Action::Import { path } => crate::opml::import(&path),
-        Action::Export { path, filter } => {
-            crate::opml::export(&path, &global_config, filter.as_ref()).await
-        }
+        Action::Import { path } => opml::import(&path),
+
+        Action::Export {
+            path,
+            filter,
+            config,
+        } => opml::export(&path, &config, filter).await,
+
         Action::Add { name, url } => {
             crate::utils::append_podcasts(vec![(name.clone(), url)]);
             eprintln!("'{}' added!", name);
         }
-        Action::Sync { filter, print } => {
-            eprintln!("Checking for new episodes...");
 
+        Action::Sync {
+            filter,
+            print,
+            config,
+        } => {
             let mp = MultiProgress::new();
 
-            let podcasts = Podcast::load_all(&global_config, filter.as_ref(), Some(&mp)).await;
+            let podcasts = Podcast::load_all(&config, filter.as_ref(), Some(&mp)).await;
             let longest_name = longest_podcast_name_len(&podcasts); // Used for formatting.
 
-            let mut futures = vec![];
-            for podcast in podcasts {
-                let future = tokio::task::spawn(async move { podcast.sync(longest_name).await });
-                futures.push(future);
-            }
+            let futures = podcasts
+                .into_iter()
+                .map(|podcast| tokio::task::spawn(async move { podcast.sync(longest_name).await }));
 
-            let mut paths = vec![];
-            for future in futures {
-                paths.extend(future.await.unwrap());
-            }
+            let episode_paths: Vec<PathBuf> = future::join_all(futures)
+                .await
+                .into_iter()
+                .filter_map(Result::ok)
+                .flatten()
+                .collect();
 
-            eprintln!("Syncing complete!");
-            eprintln!("{} episodes downloaded.", paths.len());
+            eprintln!(
+                "Syncing complete!\n{} episodes downloaded.",
+                episode_paths.len()
+            );
 
             if print {
-                for path in paths {
+                for path in episode_paths {
                     println!("{}", path.to_str().unwrap());
                 }
             }

@@ -3,8 +3,8 @@ use opml::{Body, Head, Outline, OPML};
 use std::io::Write as IoWrite;
 use std::path::Path;
 
-pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<&regex::Regex>) {
-    let podcasts = crate::Podcast::load_all(&global_config, filter, None).await;
+pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<regex::Regex>) {
+    let podcasts = crate::Podcast::load_all(&global_config, filter.as_ref(), None).await;
 
     let mut opml = OPML {
         head: Some(Head {

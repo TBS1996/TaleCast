@@ -47,3 +47,48 @@ you put your podcasts in this file:
 or modify the `podcasts.toml` file directly. 
 
 Check out the video for more details. But more documentation to come!
+
+## what are the config options?
+
+The way configuration works is that you can set a 'global value' that applies to all podcasts in the `config.toml` file, however, you can override them by 
+setting the same setting under a given podcast in the `podcasts.toml` file. If a value is not required, you can also disable it for a specific podcast with "$SETTING = false".
+
+| setting          | description                                                       | required | per-podcast | global | default                                     |
+|------------------|-------------------------------------------------------------------|----------|-------------|--------|---------------------------------------------|
+| id_pattern       | episode ID used for determining if an episode has been downloaded | yes      | ✅           | ✅      | "{guid}"                                    |
+| name_pattern     | pattern determining name of episode files                         | yes      | ❌           | ✅      | "{pubdate::%Y-%m-%d} {rss::episode::title}" |
+| url              | the url to the xml file of the podcast                            | yes      | ✅           | ❌      | (no default, must be specified)             |
+| path             | the path where episodes will be downloaded                        | yes      | ✅           | ✅      | "{home}/{appname}/{podname}"                |
+| max_days         | episodes older than this won't be downloaded                      | no       | ✅           | ✅      | None                                        |
+| max_episodes     | only this amount of episodes from past will be downloaded         | no       | ✅           | ✅      | None                                        |
+| earliest_date    | episodes published before this won't be downloaded                | no       | ✅           | ✅      | None                                        |
+| backlog_start    | start date of when backlog mode calculates from                   | no       | ✅           | ❌      | None                                        |
+| backlog_interval | how many days pass between each new episode in backlog mode       | no       | ✅           | ❌      | None                                        |
+| download_hook    | path to script that will run after an episode is downloaded       | no       | ✅           | ✅      | None                                        |
+| id3_tags         | custom tags that mp3 files will be annotated with                 | no       | ✅           | ✅      | []                                          |
+
+## what are these weird curly brace patterns?
+
+it's just a way to generate some dynamic texts. theres two types, unit patterns that take no input, and data patterns where you give it an input. here's the unit ones:
+
+| pattern | evalutes to..                      |
+|---------|------------------------------------|
+| guid    | the guid of an episode             |
+| url     | the url to the episode's enclosure |
+| podname | configured name of the podcast     |
+| appname | "talecast"                         |
+| home    | the path to your home directory    |   
+
+ a good example of these is the default value of the `path` setting. 
+
+ the following are patterns that take in an argument:
+
+ | pattern      | description                                                                                                                         |
+|--------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| rss::episode | represents the xml of an individual episode. the data it takes in is the name of an xml tag. the output is the contents of that tag |
+| rss::channel | represents the xml of a podcast. the data it takes in is the name of an xml tag. the output is the contents of that tag             |
+| pubdate      | the time the episode was published. Takes in a formatter string                                                                     |
+| id3tag       | takes in the name of an id3v2 tag, outputs the contents of the tag. Valid for mp3 files.                                            |
+
+
+look at the default value of the name_pattern setting for an example of how to use them. 

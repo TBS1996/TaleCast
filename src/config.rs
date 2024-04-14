@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Represents a [`PodcastConfig`] value that is either enabled, disabled, or we defer to the
-/// global config.
+/// global config. Only valid for optional values.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum ConfigOption<T> {
     /// Defer to the value in the global config.
@@ -38,7 +38,7 @@ fn default_name_pattern() -> String {
 }
 
 fn default_download_path() -> String {
-    "{home}/{appname}/{podname}".to_string()
+    "{home}/talecast/{podname}".to_string()
 }
 
 fn default_id_pattern() -> String {
@@ -132,8 +132,8 @@ impl Config {
             .into_val(global_config.download_hook.as_ref());
 
         let download_path = podcast_config
-            .path
-            .unwrap_or_else(|| global_config.path.clone());
+            .download_path
+            .unwrap_or_else(|| global_config.download_path.clone());
 
         let download_path = FullPattern::from_str(&download_path, vec![SourceType::Podcast]);
 
@@ -146,8 +146,7 @@ impl Config {
 
         let id_pattern = podcast_config
             .id_pattern
-            .into_val(global_config.id_pattern.as_ref())
-            .unwrap_or_else(|| default_id_pattern());
+            .unwrap_or_else(|| global_config.id_pattern.clone());
 
         let id_pattern = FullPattern::from_str(
             &id_pattern,
@@ -171,12 +170,14 @@ impl Config {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct GlobalConfig {
+    #[serde(default = "default_download_path", alias = "path")]
+    download_path: String,
     #[serde(default = "default_name_pattern")]
     name_pattern: String,
-    id_pattern: Option<String>,
+    #[serde(default = "default_id_pattern")]
+    id_pattern: String,
     max_days: Option<i64>,
     max_episodes: Option<i64>,
-    path: String,
     earliest_date: Option<String>,
     #[serde(default)]
     id3_tags: HashMap<String, String>,
@@ -201,10 +202,10 @@ impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
             name_pattern: default_name_pattern(),
-            id_pattern: None,
+            download_path: default_download_path(),
+            id_pattern: default_id_pattern(),
             max_days: None,
             max_episodes: Some(10),
-            path: default_download_path(),
             earliest_date: None,
             id3_tags: Default::default(),
             download_hook: None,
@@ -229,7 +230,8 @@ pub enum DownloadMode {
 #[serde(deny_unknown_fields)]
 pub struct PodcastConfig {
     url: String,
-    path: Option<String>,
+    #[serde(alias = "path")]
+    download_path: Option<String>,
     #[serde(default, deserialize_with = "deserialize_config_option_int")]
     max_days: ConfigOption<i64>,
     #[serde(default, deserialize_with = "deserialize_config_option_int")]
@@ -244,8 +246,7 @@ pub struct PodcastConfig {
     id3_tags: HashMap<String, String>,
     #[serde(default, deserialize_with = "deserialize_config_option_string")]
     name_pattern: ConfigOption<String>,
-    #[serde(default, deserialize_with = "deserialize_config_option_string")]
-    id_pattern: ConfigOption<String>,
+    id_pattern: Option<String>,
 }
 
 fn deserialize_config_option_int<'de, D>(deserializer: D) -> Result<ConfigOption<i64>, D::Error>

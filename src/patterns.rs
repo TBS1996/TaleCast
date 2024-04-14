@@ -3,6 +3,7 @@ use strum_macros::EnumIter;
 
 use crate::episode::Episode;
 use crate::podcast::Podcast;
+use crate::utils;
 
 use regex::Regex;
 
@@ -208,14 +209,14 @@ impl Evaluate for DataPattern {
                 let episode = sources.episode();
                 let key = &self.data;
 
-                let key = key.replace(":", crate::utils::NAMESPACE_ALTER);
+                let key = key.replace(":", utils::NAMESPACE_ALTER);
                 episode.get_text_value(&key).unwrap_or(null).to_string()
             }
             Ty::RssChannel => {
                 let channel = sources.podcast();
                 let key = &self.data;
 
-                let key = key.replace(":", crate::utils::NAMESPACE_ALTER);
+                let key = key.replace(":", utils::NAMESPACE_ALTER);
                 channel.get_text_attribute(&key).unwrap_or(null).to_string()
             }
             Ty::Id3Tag => {
@@ -268,13 +269,14 @@ enum UnitPattern {
 impl UnitPattern {
     fn from_str(s: &str) -> Option<Self> {
         match s {
-            "guid" => Some(Self::Guid),
-            "url" => Some(Self::Url),
-            "podname" => Some(Self::PodName),
-            "appname" => Some(Self::AppName),
-            "home" => Some(Self::Home),
-            _ => None,
+            "guid" => Self::Guid,
+            "url" => Self::Url,
+            "podname" => Self::PodName,
+            "appname" => Self::AppName,
+            "home" => Self::Home,
+            _ => return None,
         }
+        .into()
     }
 }
 

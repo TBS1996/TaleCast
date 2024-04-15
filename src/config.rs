@@ -99,15 +99,13 @@ impl Config {
                     std::process::exit(1);
                 }
 
-                let Ok(start) = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d") else {
-                    eprintln!("invalid backlog_start format. Use YYYY-MM-DD");
+                let Ok(start) = dateparser::parse(&start) else {
+                    eprintln!("invalid backlog_start format.");
                     std::process::exit(1);
                 };
 
-                let start = start.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
-
                 DownloadMode::Backlog {
-                    start: std::time::Duration::from_secs(start as u64),
+                    start: std::time::Duration::from_secs(start.timestamp() as u64),
                     interval,
                 }
             }

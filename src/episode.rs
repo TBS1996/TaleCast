@@ -22,8 +22,7 @@ impl<'a> Episode<'a> {
             title: item.title.as_ref().unwrap(),
             url: item.enclosure().unwrap().url(),
             guid: item.guid().unwrap().value(),
-            published: chrono::DateTime::parse_from_rfc2822(item.pub_date().unwrap())
-                .ok()
+            published: dateparser::parse(item.pub_date().unwrap())
                 .unwrap()
                 .timestamp(),
             index,

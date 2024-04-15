@@ -35,10 +35,11 @@ If you want to sync with your phone you could consider using syncthing.
 ## how to install?
 
 You'll need to have rust installed.   
-Either download from cargo with `cargo install talecast` or just clone the repo and do `cargo run`.  
+You can get it with `cargo install talecast`.  
   
 If you haven't used rust before, just run the shell command from the official website: https://www.rust-lang.org/learn/get-started  
-after this you should be able to do `cargo install talecast`!
+after this you should be able to do `cargo install talecast`
+
 
 ## how to add podcasts?
 
@@ -47,6 +48,7 @@ after this you should be able to do `cargo install talecast`!
 
 for finding podcast urls, I recommend this website: https://podcastindex.org/   
 on the page of a given podcast there, click 'copy rss'. This is the url you should use! 
+
 
 ## commandline options?
 
@@ -81,7 +83,7 @@ specific podcasts with "$SETTING = false".
 | setting          | description                                                  | required | per-podcast | global | default                                         |
 |------------------|--------------------------------------------------------------|----------|-------------|--------|-------------------------------------------------|
 | url              | the url to the xml file of the podcast                       | yes      | ✅           | ❌      | no default, must be specified                 |
-| download_path    | the path where episodes will be downloaded                   | yes      | ✅           | ✅      | `"{home}/talecast/{podname}"`                |
+| download_path    | the path where episodes will be downloaded                   | yes      | ✅           | ✅      | `"{home}/talecast/{podname}"`                 |
 | name_pattern     | pattern determining name of episode files                    | yes      | ✅           | ✅      | `"{pubdate::%Y-%m-%d} {rss::episode::title}"` |
 | id_pattern       | episode ID for determining if an episode has been downloaded | yes      | ✅           | ✅      | `"{guid}"`                                    |
 | download_hook    | path to script that will run after an episode is downloaded  | no       | ✅           | ✅      | `None`                                        |
@@ -108,7 +110,7 @@ it's just a way to generate some dynamic texts. theres two types, unit patterns 
 
  the following are patterns that take in an argument:
 
- | pattern      | description                                                                                                                         |
+| pattern      | description                                                                                                                         |
 |--------------|-------------------------------------------------------------------------------------------------------------------------------------|
 | rss::episode | represents the xml of an individual episode. the data it takes in is the name of an xml tag. the output is the contents of that tag |
 | rss::channel | represents the xml of a podcast. the data it takes in is the name of an xml tag. the output is the contents of that tag             |
@@ -118,6 +120,10 @@ it's just a way to generate some dynamic texts. theres two types, unit patterns 
 
 look at the default value of the name_pattern setting for an example of how to use them. 
 note that not all patterns are available for each setting, for example, the download_path can't use information specific to an episode.
+
+## backlog mode? what's that?
+
+A way to systematically go through the backlog of a podacst, starting from the first episode. Perfect for podcasts where older videos are as relevant as newer ones, and especially if you're supposed to go through them chronologically. You set the date you start with `backlog_start`, and an interval with `backlog_interval`. If you set `backlog_start` and then sync, you'll download the first episode of the podcast. After `backlog_interval`` days have passed, it'll download the second episode, and so on.
 
 
 # todo  

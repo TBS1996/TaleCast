@@ -39,13 +39,6 @@ Either download from cargo with `cargo install talecast` or just clone the repo 
   
 I plan to put it on the nix store soon, not sure if I'm gonna bother with the other package managers since I'm less familiar. If someone wants to publish there then that'd be great!
 
-## how to configure it?
-
-the global config is located in:
-`~/.config/talecast/config.toml`
-
-you put your podcasts in this file:
-`~/.config/talecast/podcasts.toml`
 
 ## how to add podcasts?
 
@@ -56,8 +49,14 @@ for finding podcast urls, I recommend this website: https://podcastindex.org/
 on the page of a given podcast there, click 'copy rss'. This is the url you should use! 
 
 
+## how to configure it?
 
-Check out the video for more details. But more documentation to come!
+the global config is located in:
+`~/.config/talecast/config.toml`
+
+you put your podcasts in this file:
+`~/.config/talecast/podcasts.toml`
+
 
 ## what are the config options?
 

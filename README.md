@@ -8,7 +8,6 @@ Simple CLI podcast manager.
 
 
 
-
 Check this video for a quick tutorial:  
 [![Watch the video](https://img.youtube.com/vi/TKoToA6MGdY/0.jpg)](https://www.youtube.com/watch?v=TKoToA6MGdY)
 
@@ -35,7 +34,8 @@ If you want to sync with your phone you could consider using syncthing.
 
 ## how to install?
 
-You'll need to have rust installed. Either download from cargo `cargo install talecast` or just clone the repo.  
+You'll need to have rust installed.   
+Either download from cargo with `cargo install talecast` or just clone the repo and do `cargo run`.  
   
 I plan to put it on the nix store soon, not sure if I'm gonna bother with the other package managers since I'm less familiar. If someone wants to publish there then that'd be great!
 
@@ -59,14 +59,14 @@ Check out the video for more details. But more documentation to come!
 
 The way configuration works is that you can set a 'global value' that applies to all podcasts in the `config.toml` file, however, you can override them by 
 setting the same setting under a given podcast in the `podcasts.toml` file. If a value is not required, you can have it configured globally but disable it on 
-specific podcasts with "$SETTING = false" in `podcasts.toml`.
+specific podcasts with "$SETTING = false".
 
 | setting          | description                                                  | required | per-podcast | global | default                                     |
 |------------------|--------------------------------------------------------------|----------|-------------|--------|---------------------------------------------|
 | url              | the url to the xml file of the podcast                       | yes      | ✅           | ❌      | (no default, must be specified)             |
-| download_path    | the path where episodes will be downloaded                   | yes      | ✅           | ✅      | "{home}/{appname}/{podname}"                |
-| name_pattern     | pattern determining name of episode files                    | yes      | ✅           | ✅      | "{pubdate::%Y-%m-%d} {rss::episode::title}" |
-| id_pattern       | episode ID for determining if an episode has been downloaded | yes      | ✅           | ✅      | "{guid}"                                    |
+| download_path    | the path where episodes will be downloaded                   | yes      | ✅           | ✅      | `{home}/{appname}/{podname}`                |
+| name_pattern     | pattern determining name of episode files                    | yes      | ✅           | ✅      | `{pubdate::%Y-%m-%d} {rss::episode::title}` |
+| id_pattern       | episode ID for determining if an episode has been downloaded | yes      | ✅           | ✅      | `{guid}`                                    |
 | download_hook    | path to script that will run after an episode is downloaded  | no       | ✅           | ✅      | None                                        |
 | max_days         | episodes older than this won't be downloaded                 | no       | ✅           | ✅      | None                                        |
 | max_episodes     | only this amount of episodes from past will be downloaded    | no       | ✅           | ✅      | None                                        |
@@ -84,10 +84,9 @@ it's just a way to generate some dynamic texts. theres two types, unit patterns 
 | guid    | the guid of an episode             |
 | url     | the url to the episode's enclosure |
 | podname | configured name of the podcast     |
-| appname | "talecast"                         |
 | home    | the path to your home directory    |   
 
- a good example of these is the default value of the `path` setting. 
+ a good example of these is the default value of the `download_path` setting. 
 
  the following are patterns that take in an argument:
 

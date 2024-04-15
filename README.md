@@ -50,6 +50,7 @@ on the page of a given podcast there, click 'copy rss'. This is the url you shou
 
 ## commandline options?
 
+```
   -i, --import <FILE>     Import podcasts from an OPML file
   -e, --export <FILE>     Export your podcasts to an OPML file
   -p, --print             Print the downloaded paths to stdout
@@ -61,6 +62,7 @@ on the page of a given podcast there, click 'copy rss'. This is the url you shou
       --edit-podcasts     Edit the podcasts.toml file
   -h, --help              Print help
   -V, --version           Print version
+```
 
 
 ## how to configure it?

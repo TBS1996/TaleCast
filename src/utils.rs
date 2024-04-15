@@ -27,22 +27,17 @@ pub fn log<S: AsRef<str>>(message: S) {
 }
 
 fn config_dir() -> PathBuf {
-    if let Ok(xdg_home) = std::env::var("XDG_CONFIG_HOME") {
-        let p = PathBuf::from(xdg_home).join(crate::APPNAME);
-        std::fs::create_dir_all(&p).unwrap();
-        return p;
+    let path = match std::env::var("XDG_CONFIG_HOME") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => dirs::home_dir()
+            .expect("unable to locate home directory. Try setting 'XDG_CONFIG_HOME' manually")
+            .join(".config"),
     }
+    .join(crate::APPNAME);
 
-    let mut p = dirs::config_dir().unwrap().join(crate::APPNAME);
-    if !p.exists() {
-        p = dirs::home_dir()
-            .unwrap()
-            .join(".config")
-            .join(crate::APPNAME);
-    }
+    std::fs::create_dir_all(&path).unwrap();
 
-    std::fs::create_dir_all(&p).unwrap();
-    p
+    path
 }
 
 pub fn podcasts_toml() -> PathBuf {

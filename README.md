@@ -57,6 +57,8 @@ the global config is located in:
 you put your podcasts in this file:
 `~/.config/talecast/podcasts.toml`
 
+note: if you use mac you can manually create a `$HOME/Library/Application Support/talecast/` folder, then it will use this instead of `~/.config/talecast`! 
+
 
 ## what are the config options?
 

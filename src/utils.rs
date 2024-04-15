@@ -27,7 +27,14 @@ pub fn log<S: AsRef<str>>(message: S) {
 }
 
 fn config_dir() -> PathBuf {
-    let p = dirs::config_dir().unwrap().join(crate::APPNAME);
+    let mut p = dirs::config_dir().unwrap().join(crate::APPNAME);
+    if !p.exists() {
+        p = dirs::home_dir()
+            .unwrap()
+            .join(".config")
+            .join(crate::APPNAME);
+    }
+
     std::fs::create_dir_all(&p).unwrap();
     p
 }

@@ -71,7 +71,7 @@ specific podcasts with "$SETTING = false".
 | name_pattern     | pattern determining name of episode files                    | yes      | ✅           | ✅      | `{pubdate::%Y-%m-%d} {rss::episode::title}` |
 | id_pattern       | episode ID for determining if an episode has been downloaded | yes      | ✅           | ✅      | `{guid}`                                    |
 | download_hook    | path to script that will run after an episode is downloaded  | no       | ✅           | ✅      | `None`                                      |
-| tracker_path     | path to textfile that tracks downloaded episodes.            | no       | ✅           | ✅      | download_path/.downlaoded                   |
+| tracker_path     | path to textfile that tracks downloaded episodes.            | no       | ✅           | ✅      | download_path/.downloaded                   |
 | max_days         | episodes older than this won't be downloaded                 | no       | ✅           | ✅      | `None`                                      |
 | max_episodes     | only this amount of episodes from past will be downloaded    | no       | ✅           | ✅      | `None`                                      |
 | earliest_date    | episodes published before this won't be downloaded           | no       | ✅           | ✅      | `None`                                      |

@@ -37,8 +37,8 @@ If you want to sync with your phone you could consider using syncthing.
 You'll need to have rust installed.   
 Either download from cargo with `cargo install talecast` or just clone the repo and do `cargo run`.  
   
-I plan to put it on the nix store soon, not sure if I'm gonna bother with the other package managers since I'm less familiar. If someone wants to publish there then that'd be great!
-
+If you haven't used rust before, just run the shell command from the official website: https://www.rust-lang.org/learn/get-started  
+after this you should be able to do `cargo install talecast`!
 
 ## how to add podcasts?
 
@@ -48,16 +48,27 @@ I plan to put it on the nix store soon, not sure if I'm gonna bother with the ot
 for finding podcast urls, I recommend this website: https://podcastindex.org/   
 on the page of a given podcast there, click 'copy rss'. This is the url you should use! 
 
+## commandline options?
+
+  -i, --import <FILE>     Import podcasts from an OPML file
+  -e, --export <FILE>     Export your podcasts to an OPML file
+  -p, --print             Print the downloaded paths to stdout
+  -c, --catch-up          Catch up on podcast
+  -a, --add <URL> <NAME>  Add new podcast
+  -f, --filter <FILTER>   Filter which podcasts to sync or export with a regex pattern
+      --config <FILE>     Override the path to the config file
+      --edit-config       Edit the config.toml file
+      --edit-podcasts     Edit the podcasts.toml file
+  -h, --help              Print help
+  -V, --version           Print version
+
 
 ## how to configure it?
 
-the global config is located in:
-`~/.config/talecast/config.toml`
+to edit the global config: `talecast --edit-config`  
+to edit the podcasts: `talecast --edit-podcasts`  
 
-you put your podcasts in this file:
-`~/.config/talecast/podcasts.toml`
-
-can be overridden with the `XDG_CONFIG_HOME` environment variable.
+these files are located in `~/.config/talecast/config.toml` and `~/.config/talecast/podcasts.toml` respectively, unless your `XDG_CONFIG_HOME` environment variable is set to something else.
 
 
 ## what are the config options?

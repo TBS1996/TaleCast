@@ -4,7 +4,7 @@ Simple CLI podcast manager.
 
 
 
-https://github.com/TBS1996/TaleCast/assets/56874491/88e1027a-46e5-4564-b84b-02e5f1cfeb25
+![demo](https://github.com/TBS1996/TaleCast/assets/56874491/4eb96b52-6752-4280-84b6-306be6c9ab84)
 
 
 

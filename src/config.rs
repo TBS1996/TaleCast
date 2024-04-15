@@ -267,12 +267,17 @@ impl PodcastConfig {
     pub fn load_all() -> HashMap<String, Self> {
         let path = crate::utils::podcasts_toml();
         if !path.exists() {
+            std::fs::File::create(&path).unwrap();
+        }
+
+        let config_str = std::fs::read_to_string(&path).unwrap();
+        let map: HashMap<String, Self> = toml::from_str(&config_str).unwrap();
+        if map.is_empty() {
             eprintln!("No podcasts configured!");
-            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the podcasts.toml file.", crate::APPNAME);
+            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the {:?} file.", crate::APPNAME, &path);
             std::process::exit(1);
         }
-        let config_str = std::fs::read_to_string(path).unwrap();
-        toml::from_str(&config_str).unwrap()
+        map
     }
 }
 

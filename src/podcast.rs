@@ -206,7 +206,8 @@ impl Podcast {
 
     fn mark_downloaded(&self, episode: &DownloadedEpisode) {
         let id = self.get_id(episode.inner());
-        DownloadedEpisodes::append(&id, &episode);
+        let path = self.tracker_path();
+        DownloadedEpisodes::append(&path, &id, &episode);
     }
 
     fn get_id(&self, episode: &Episode) -> String {
@@ -220,11 +221,17 @@ impl Podcast {
             .replace(" ", "_")
     }
 
+    fn tracker_path(&self) -> PathBuf {
+        let source = DataSources::default().set_podcast(self);
+        let path = self.config().tracker_path.evaluate(source);
+        PathBuf::from(&path)
+    }
+
     fn pending_episodes(&self) -> Vec<Episode<'_>> {
-        let download_folder = self.download_folder();
         let mut episodes = self.episodes();
         let episode_qty = episodes.len();
-        let downloaded = DownloadedEpisodes::load(&download_folder);
+        let path = self.tracker_path();
+        let downloaded = DownloadedEpisodes::load(&path);
 
         episodes = episodes
             .into_iter()
@@ -442,10 +449,7 @@ impl Podcast {
 struct DownloadedEpisodes(HashMap<String, Unix>);
 
 impl DownloadedEpisodes {
-    const FILENAME: &'static str = ".downloaded";
-
     fn load(path: &Path) -> Self {
-        let path = path.join(Self::FILENAME);
         let s = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -472,9 +476,9 @@ impl DownloadedEpisodes {
         Self(hashmap)
     }
 
-    fn append(id: &str, episode: &DownloadedEpisode) {
-        let path = episode.path().parent().unwrap().join(Self::FILENAME);
+    fn append(path: &Path, id: &str, episode: &DownloadedEpisode) {
         use std::io::Write;
+        dbg!(&path);
 
         let mut file = std::fs::OpenOptions::new()
             .append(true)

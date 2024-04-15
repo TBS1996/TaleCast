@@ -52,6 +52,7 @@ pub struct Config {
     pub name_pattern: FullPattern,
     pub id_pattern: FullPattern,
     pub download_path: FullPattern,
+    pub tracker_path: FullPattern,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
     pub mode: DownloadMode,
@@ -137,6 +138,14 @@ impl Config {
 
         let download_path = FullPattern::from_str(&download_path, vec![SourceType::Podcast]);
 
+        let tracker_path = match podcast_config
+            .tracker_path
+            .into_val(global_config.tracker_path.as_ref())
+        {
+            Some(tracker_path) => FullPattern::from_str(&tracker_path, vec![SourceType::Podcast]),
+            None => download_path.clone().append_text(".downloaded".to_owned()),
+        };
+
         let name_pattern = podcast_config
             .name_pattern
             .into_val(Some(&global_config.name_pattern))
@@ -163,6 +172,7 @@ impl Config {
             id3_tags,
             download_hook,
             download_path,
+            tracker_path,
         }
     }
 }
@@ -182,6 +192,7 @@ pub struct GlobalConfig {
     #[serde(default)]
     id3_tags: HashMap<String, String>,
     download_hook: Option<PathBuf>,
+    tracker_path: Option<String>,
 }
 
 impl GlobalConfig {
@@ -209,6 +220,7 @@ impl Default for GlobalConfig {
             earliest_date: None,
             id3_tags: Default::default(),
             download_hook: None,
+            tracker_path: None,
         }
     }
 }
@@ -240,6 +252,8 @@ pub struct PodcastConfig {
     earliest_date: ConfigOption<String>,
     #[serde(default, deserialize_with = "deserialize_config_option_pathbuf")]
     download_hook: ConfigOption<PathBuf>,
+    #[serde(default, deserialize_with = "deserialize_config_option_string")]
+    tracker_path: ConfigOption<String>,
     backlog_start: Option<String>,
     backlog_interval: Option<i64>,
     #[serde(default)]

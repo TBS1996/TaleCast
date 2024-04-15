@@ -11,6 +11,11 @@ use regex::Regex;
 pub struct FullPattern(Vec<Segment>);
 
 impl FullPattern {
+    pub fn append_text(mut self, text: String) -> Self {
+        self.0.push(Segment::Text(text));
+        self
+    }
+
     pub fn from_str(s: &str, available_sources: Vec<SourceType>) -> Self {
         let mut segments: Vec<Segment> = vec![];
         let mut text = String::new();

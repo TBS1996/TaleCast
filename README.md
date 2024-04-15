@@ -71,6 +71,7 @@ specific podcasts with "$SETTING = false".
 | name_pattern     | pattern determining name of episode files                    | yes      | ✅           | ✅      | `{pubdate::%Y-%m-%d} {rss::episode::title}` |
 | id_pattern       | episode ID for determining if an episode has been downloaded | yes      | ✅           | ✅      | `{guid}`                                    |
 | download_hook    | path to script that will run after an episode is downloaded  | no       | ✅           | ✅      | None                                        |
+| tracker_path     | path to textfile that tracks downloaded episodes             | no       | ✅           | ✅      | None                                        |
 | max_days         | episodes older than this won't be downloaded                 | no       | ✅           | ✅      | None                                        |
 | max_episodes     | only this amount of episodes from past will be downloaded    | no       | ✅           | ✅      | None                                        |
 | earliest_date    | episodes published before this won't be downloaded           | no       | ✅           | ✅      | None                                        |
@@ -103,3 +104,15 @@ it's just a way to generate some dynamic texts. theres two types, unit patterns 
 
 look at the default value of the name_pattern setting for an example of how to use them. 
 note that not all patterns are available for each setting, for example, the download_path can't use information specific to an episode.
+
+
+# todo  
+
+- better error handling. Atm i unwrap a lot since stopping the program when something goes wrong is generally fine for scripts and unwrap gives a lot of nice debug information.
+- integrate opml better. Currently if you import opml and then export you might lose some metadata. 
+- add to package managers (help appreciated here!) 
+- more tests
+- maybe make it more generalizable for other kind of media content?
+- atom support? do any podcasts even use atom?
+- reduce dependencies
+- more flexibility in how to handle missing values in patterns

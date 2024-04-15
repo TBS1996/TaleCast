@@ -2,10 +2,17 @@
 
 Simple CLI podcast manager.
 
-If you want to sync with your phone you could consider using syncthing. 
 
-Check this video for a quick introduction:  
+
+https://github.com/TBS1996/TaleCast/assets/56874491/88e1027a-46e5-4564-b84b-02e5f1cfeb25
+
+
+
+
+Check this video for a quick tutorial:  
 [![Watch the video](https://img.youtube.com/vi/TKoToA6MGdY/0.jpg)](https://www.youtube.com/watch?v=TKoToA6MGdY)
+
+If you want to sync with your phone you could consider using syncthing. 
 
 ## Main features
 

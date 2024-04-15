@@ -38,8 +38,7 @@ fn init_podcast_status(mp: &MultiProgress, _name: &str) -> ProgressBar {
 
 #[derive(Debug)]
 pub struct Podcast {
-    /// The configured name in `podcasts.toml`.
-    name: String,
+    name: String, // The configured name in `podcasts.toml`.
     channel: rss::Channel,
     xml: serde_json::Value,
     config: Config,
@@ -68,16 +67,7 @@ impl Podcast {
         filter: Option<&regex::Regex>,
         mp: Option<&MultiProgress>,
     ) -> Vec<Self> {
-        let configs: HashMap<String, PodcastConfig> = {
-            let path = crate::utils::podcasts_toml();
-            if !path.exists() {
-                eprintln!("No podcasts configured!");
-                eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the podcasts.toml file.", crate::APPNAME);
-                std::process::exit(1);
-            }
-            let config_str = std::fs::read_to_string(path).unwrap();
-            toml::from_str(&config_str).unwrap()
-        };
+        let configs = PodcastConfig::load_all();
 
         let podcast_qty = configs.len();
         let mut podcasts = vec![];
@@ -92,17 +82,14 @@ impl Podcast {
             let config = Config::new(&global_config, config);
             let xml_string = crate::utils::download_text(&config.url).await;
             let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
-            let xml_value = xml_to_value(&xml_string);
+            let xml = xml_to_value(&xml_string);
 
-            let progress_bar = match mp {
-                Some(mp) => Some(init_podcast_status(mp, &name)),
-                None => None,
-            };
+            let progress_bar = mp.map(|mp| init_podcast_status(mp, &name));
 
             podcasts.push(Self {
                 name,
                 channel,
-                xml: xml_value,
+                xml,
                 config,
                 progress_bar,
             });
@@ -263,7 +250,7 @@ impl Podcast {
         if let Some(pb) = &self.progress_bar {
             pb.set_style(
                 ProgressStyle::default_bar()
-                    .template("{spinner:.green} {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")
+                    .template("{spinner:.green}  {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")
                     .unwrap(),
             );
             pb.enable_steady_tick(std::time::Duration::from_millis(100));

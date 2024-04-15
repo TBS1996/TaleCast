@@ -249,6 +249,19 @@ pub struct PodcastConfig {
     id_pattern: Option<String>,
 }
 
+impl PodcastConfig {
+    pub fn load_all() -> HashMap<String, Self> {
+        let path = crate::utils::podcasts_toml();
+        if !path.exists() {
+            eprintln!("No podcasts configured!");
+            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the podcasts.toml file.", crate::APPNAME);
+            std::process::exit(1);
+        }
+        let config_str = std::fs::read_to_string(path).unwrap();
+        toml::from_str(&config_str).unwrap()
+    }
+}
+
 fn deserialize_config_option_int<'de, D>(deserializer: D) -> Result<ConfigOption<i64>, D::Error>
 where
     D: serde::Deserializer<'de>,

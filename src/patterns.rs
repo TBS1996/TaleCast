@@ -25,9 +25,8 @@ impl FullPattern {
                 let pattern = Pattern::from_str(&text_pattern);
                 if let Some(required_source) = pattern.required_source() {
                     if !available_sources.contains(&required_source) {
-                        eprintln!("CONFIGURATION ERROR");
                         eprintln!(
-                            "invalid pattern: {}\n{:?} requires the \"{:?}\"-source which is not available for this configuration setting.",
+                            "CONFIGURATION ERROR\ninvalid pattern: {}\n{:?} requires the \"{:?}\"-source which is not available for this configuration setting.",
                             s, text_pattern, required_source
                         );
 
@@ -40,8 +39,7 @@ impl FullPattern {
             } else if c == '{' {
                 assert!(!is_inside);
                 let text = std::mem::take(&mut text);
-                let segment = Segment::Text(text);
-                segments.push(segment);
+                segments.push(Segment::Text(text));
                 is_inside = true;
             } else {
                 if is_inside {
@@ -145,6 +143,10 @@ impl Pattern {
             Self::Unit(UP::Url) => Some(SourceType::Episode),
             Self::Unit(UP::Guid) => Some(SourceType::Episode),
             Self::Data(DP {
+                ty: DataPatternType::CurrDate,
+                ..
+            }) => None,
+            Self::Data(DP {
                 ty: DataPatternType::RssChannel,
                 ..
             }) => Some(SourceType::Podcast),
@@ -193,6 +195,17 @@ impl Evaluate for DataPattern {
         let null = "<value not found>";
 
         match self.ty {
+            Ty::CurrDate => {
+                let now = utils::current_unix();
+                let formatting = &self.data;
+                let datetime = chrono::Utc.timestamp_opt(now, 0).unwrap();
+
+                if formatting == "unix" {
+                    now.to_string()
+                } else {
+                    datetime.format(formatting).to_string()
+                }
+            }
             Ty::PubDate => {
                 let episode = sources.episode();
                 let formatting = &self.data;
@@ -239,6 +252,7 @@ enum DataPatternType {
     RssEpisode,
     RssChannel,
     PubDate,
+    CurrDate,
     Id3Tag,
 }
 
@@ -247,6 +261,7 @@ impl DataPatternType {
         let s = match self {
             Self::Id3Tag => "id3",
             Self::PubDate => "pubdate",
+            Self::CurrDate => "currdate",
             Self::RssEpisode => "rss::episode",
             Self::RssChannel => "rss::channel",
         };

@@ -39,10 +39,9 @@ struct Args {
     export: Option<PathBuf>,
     #[arg(short, long, help = "Print the downloaded paths to stdout")]
     print: bool,
-    #[arg(short, long, num_args = 2,
-value_names = &["URL", "NAME"],
-
-          help = "Add new podcast")]
+    #[arg(short, long, help = "Catch up on podcast")]
+    catch_up: bool,
+    #[arg(short, long, num_args = 2, value_names = &["URL", "NAME"], help = "Add new podcast")]
     add: Vec<String>,
     #[arg(
         short,
@@ -51,7 +50,6 @@ value_names = &["URL", "NAME"],
     )]
     filter: Option<regex::Regex>,
     #[arg(
-        short,
         long,
         value_name = "FILE",
         help = "Override the path to the config file"
@@ -86,6 +84,7 @@ impl From<Args> for Action {
             assert_eq!(val.add.len(), 2);
             let url = val.add[0].to_string();
             let name = val.add[1].to_string();
+
             return Self::Add { url, name };
         }
 
@@ -128,12 +127,12 @@ async fn main() {
 
         Action::Export {
             path,
-            filter,
             config,
+            filter,
         } => opml::export(&path, &config, filter).await,
 
         Action::Add { name, url } => {
-            crate::utils::append_podcasts(vec![(name.clone(), url)]);
+            utils::append_podcasts(vec![(name.clone(), url)]);
             eprintln!("'{}' added!", name);
         }
 
@@ -151,20 +150,17 @@ async fn main() {
                 .into_iter()
                 .map(|podcast| tokio::task::spawn(async move { podcast.sync(longest_name).await }));
 
-            let episode_paths: Vec<PathBuf> = future::join_all(futures)
+            let episodes: Vec<PathBuf> = future::join_all(futures)
                 .await
                 .into_iter()
                 .filter_map(Result::ok)
                 .flatten()
                 .collect();
 
-            eprintln!(
-                "Syncing complete!\n{} episodes downloaded.",
-                episode_paths.len()
-            );
+            eprintln!("Syncing complete!\n{} episodes downloaded.", episodes.len());
 
             if print {
-                for path in episode_paths {
+                for path in episodes {
                     println!("{}", path.to_str().unwrap());
                 }
             }

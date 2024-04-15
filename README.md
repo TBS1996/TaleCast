@@ -58,7 +58,8 @@ Check out the video for more details. But more documentation to come!
 ## what are the config options?
 
 The way configuration works is that you can set a 'global value' that applies to all podcasts in the `config.toml` file, however, you can override them by 
-setting the same setting under a given podcast in the `podcasts.toml` file. If a value is not required, you can also disable it for a specific podcast with "$SETTING = false".
+setting the same setting under a given podcast in the `podcasts.toml` file. If a value is not required, you can have it configured globally but disable it on 
+specific podcasts with "$SETTING = false" in `podcasts.toml`.
 
 | setting          | description                                                  | required | per-podcast | global | default                                     |
 |------------------|--------------------------------------------------------------|----------|-------------|--------|---------------------------------------------|

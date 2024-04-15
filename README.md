@@ -67,7 +67,7 @@ specific podcasts with "$SETTING = false".
 | setting          | description                                                  | required | per-podcast | global | default                                         |
 |------------------|--------------------------------------------------------------|----------|-------------|--------|-------------------------------------------------|
 | url              | the url to the xml file of the podcast                       | yes      | ✅           | ❌      | no default, must be specified                 |
-| download_path    | the path where episodes will be downloaded                   | yes      | ✅           | ✅      | `"{home}/{appname}/{podname}"`                |
+| download_path    | the path where episodes will be downloaded                   | yes      | ✅           | ✅      | `"{home}/talecast/{podname}"`                |
 | name_pattern     | pattern determining name of episode files                    | yes      | ✅           | ✅      | `"{pubdate::%Y-%m-%d} {rss::episode::title}"` |
 | id_pattern       | episode ID for determining if an episode has been downloaded | yes      | ✅           | ✅      | `"{guid}"`                                    |
 | download_hook    | path to script that will run after an episode is downloaded  | no       | ✅           | ✅      | `None`                                        |

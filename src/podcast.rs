@@ -478,7 +478,6 @@ impl DownloadedEpisodes {
 
     fn append(path: &Path, id: &str, episode: &DownloadedEpisode) {
         use std::io::Write;
-        dbg!(&path);
 
         let mut file = std::fs::OpenOptions::new()
             .append(true)

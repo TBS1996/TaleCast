@@ -196,16 +196,27 @@ pub struct GlobalConfig {
 }
 
 impl GlobalConfig {
-    pub fn load(p: &Path) -> Self {
-        if !p.exists() {
+    pub fn load() -> Self {
+        let path = Self::default_path();
+        Self::load_from_path(&path)
+    }
+
+    pub fn load_from_path(path: &Path) -> Self {
+        let str = std::fs::read_to_string(&path).unwrap();
+        toml::from_str(&str).unwrap()
+    }
+
+    pub fn default_path() -> PathBuf {
+        let path = crate::utils::config_dir().join("config.toml");
+
+        if !path.exists() {
             let default = Self::default();
             let s = toml::to_string_pretty(&default).unwrap();
-            let mut f = std::fs::File::create(&p).unwrap();
+            let mut f = std::fs::File::create(&path).unwrap();
             f.write_all(s.as_bytes()).unwrap();
         }
 
-        let str = std::fs::read_to_string(p).unwrap();
-        toml::from_str(&str).unwrap()
+        path
     }
 }
 

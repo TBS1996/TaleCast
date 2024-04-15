@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::Write as IOWrite;
+use std::path::Path;
 use std::path::PathBuf;
 
 pub type Unix = std::time::Duration;
@@ -26,7 +27,7 @@ pub fn log<S: AsRef<str>>(message: S) {
     writeln!(file, "{}", message.as_ref()).unwrap();
 }
 
-fn config_dir() -> PathBuf {
+pub fn config_dir() -> PathBuf {
     let path = match std::env::var("XDG_CONFIG_HOME") {
         Ok(path) => PathBuf::from(path),
         Err(_) => dirs::home_dir()
@@ -41,11 +42,13 @@ fn config_dir() -> PathBuf {
 }
 
 pub fn podcasts_toml() -> PathBuf {
-    config_dir().join("podcasts.toml")
-}
+    let path = config_dir().join("podcasts.toml");
 
-pub fn config_toml() -> PathBuf {
-    config_dir().join("config.toml")
+    if !path.exists() {
+        std::fs::File::create(&path).unwrap();
+    }
+
+    path
 }
 
 pub fn current_unix() -> i64 {
@@ -205,6 +208,36 @@ pub async fn download_text(url: &str) -> String {
         .text()
         .await
         .unwrap()
+}
+
+/// Longest podcast name is used for formatting.
+pub fn longest_podcast_name_len(pods: &Vec<crate::podcast::Podcast>) -> usize {
+    match pods
+        .iter()
+        .map(|podcast| podcast.name().chars().count())
+        .max()
+    {
+        Some(len) => len,
+        None => {
+            eprintln!("no podcasts configured");
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn edit_file(path: &Path) {
+    let editor = match std::env::var("EDITOR") {
+        Ok(editor) => editor,
+        Err(_) => {
+            eprintln!("Please configure your $EDITOR environment variable");
+            std::process::exit(1);
+        }
+    };
+
+    std::process::Command::new(editor)
+        .arg(path.to_str().unwrap())
+        .status()
+        .unwrap();
 }
 
 #[cfg(test)]

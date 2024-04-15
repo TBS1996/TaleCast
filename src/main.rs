@@ -55,6 +55,10 @@ struct Args {
         help = "Override the path to the config file"
     )]
     config: Option<PathBuf>,
+    #[arg(long, help = "Edit the config.toml file")]
+    edit_config: bool,
+    #[arg(long, help = "Edit the podcasts.toml file")]
+    edit_podcasts: bool,
 }
 
 impl From<Args> for Action {
@@ -62,10 +66,20 @@ impl From<Args> for Action {
         let filter = val.filter;
         let print = val.print;
 
-        let global_config = || {
-            let config_path = val.config.clone().unwrap_or_else(crate::utils::config_toml);
-            GlobalConfig::load(&config_path)
+        let global_config = || match val.config.as_ref() {
+            Some(path) => GlobalConfig::load_from_path(path),
+            None => GlobalConfig::load(),
         };
+
+        if val.edit_config {
+            let path = utils::podcasts_toml();
+            return Self::Edit { path };
+        }
+
+        if val.edit_podcasts {
+            let path = GlobalConfig::default_path();
+            return Self::Edit { path };
+        }
 
         if let Some(path) = val.import {
             return Self::Import { path };
@@ -99,6 +113,9 @@ impl From<Args> for Action {
 }
 
 enum Action {
+    Edit {
+        path: PathBuf,
+    },
     Import {
         path: PathBuf,
     },
@@ -125,6 +142,8 @@ async fn main() {
     match Action::from(args) {
         Action::Import { path } => opml::import(&path),
 
+        Action::Edit { path } => utils::edit_file(&path),
+
         Action::Export {
             path,
             config,
@@ -147,7 +166,7 @@ async fn main() {
             let mp = MultiProgress::new();
 
             let podcasts = Podcast::load_all(&config, filter.as_ref(), Some(&mp)).await;
-            let longest_name = longest_podcast_name_len(&podcasts); // Used for formatting.
+            let longest_name = utils::longest_podcast_name_len(&podcasts); // Used for formatting.
 
             let futures = podcasts
                 .into_iter()
@@ -167,21 +186,6 @@ async fn main() {
                     println!("{}", path.to_str().unwrap());
                 }
             }
-        }
-    }
-}
-
-/// Longest podcast name is used for formatting.
-fn longest_podcast_name_len(pods: &Vec<Podcast>) -> usize {
-    match pods
-        .iter()
-        .map(|podcast| podcast.name().chars().count())
-        .max()
-    {
-        Some(len) => len,
-        None => {
-            eprintln!("no podcasts configured");
-            std::process::exit(1);
         }
     }
 }

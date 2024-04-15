@@ -143,15 +143,23 @@ struct BasicPodcast {
 ///
 /// The reason it doesn't simply deserialize, modify, then serialize, is to not overrwite comments
 /// in the config.
-pub fn append_podcasts(name_and_url: Vec<(String, String)>) {
+pub fn append_podcasts(name_and_url: Vec<(String, String)>) -> bool {
     let path = crate::utils::podcasts_toml();
+    let current_podcasts = crate::config::PodcastConfig::load_all();
 
     let config_appendix = {
         let mut map = HashMap::new();
 
         for (name, url) in name_and_url {
+            if current_podcasts.contains_key(&name) {
+                continue;
+            }
             let pod = BasicPodcast { url };
             map.insert(name, pod);
+        }
+
+        if map.is_empty() {
+            return false;
         }
 
         toml::to_string_pretty(&map).unwrap()
@@ -172,6 +180,8 @@ pub fn append_podcasts(name_and_url: Vec<(String, String)>) {
     };
 
     std::fs::write(&path, new_config).unwrap();
+
+    true
 }
 
 pub async fn download_text(url: &str) -> String {

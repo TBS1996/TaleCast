@@ -132,8 +132,11 @@ async fn main() {
         } => opml::export(&path, &config, filter).await,
 
         Action::Add { name, url } => {
-            utils::append_podcasts(vec![(name.clone(), url)]);
-            eprintln!("'{}' added!", name);
+            if utils::append_podcasts(vec![(name.clone(), url)]) {
+                eprintln!("'{}' added!", name);
+            } else {
+                eprintln!("'{}' already exists!", name);
+            }
         }
 
         Action::Sync {

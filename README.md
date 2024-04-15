@@ -49,9 +49,13 @@ you put your podcasts in this file:
 
 ## how to add podcasts?
 
-`talecast --add $PODCAST_URL $PODCAST_NAME`
+`talecast --add $PODCAST_URL $PODCAST_NAME`  
+... or modify the `podcasts.toml` file directly. 
 
-or modify the `podcasts.toml` file directly. 
+for finding podcast urls, I recommend this website: https://podcastindex.org/   
+on the page of a given podcast there, click 'copy rss'. This is the url you should use! 
+
+
 
 Check out the video for more details. But more documentation to come!
 

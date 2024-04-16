@@ -232,27 +232,36 @@ pub struct GlobalConfig {
 }
 
 impl GlobalConfig {
+    /// Loads the global config from the default path.
+    ///
+    /// If config is not present it'll create a default one.
+    /// It'll always save after loading in case it's missing a required field
+    /// which has a default. Reason is I want the user to see all the required
+    /// fields in the `config.toml` file instead of just silently using the default
+    /// value. This also makes the user aware of any new required fields after updating.
+    /// Note that this means any comments will unfortunately be removed.
     pub fn load() -> Self {
         let path = Self::default_path();
-        Self::load_from_path(&path)
+        let config = Self::load_from_path(&path).unwrap_or_default();
+        config.save();
+        config
     }
 
-    pub fn load_from_path(path: &Path) -> Self {
-        let str = std::fs::read_to_string(&path).unwrap();
-        toml::from_str(&str).unwrap()
+    /// Serializes the config to the default path.
+    pub fn save(&self) {
+        let path = Self::default_path();
+        let str = toml::to_string(self).unwrap();
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(str.as_bytes()).unwrap();
+    }
+
+    pub fn load_from_path(path: &Path) -> Option<Self> {
+        let str = std::fs::read_to_string(&path).ok()?;
+        toml::from_str(&str).ok()
     }
 
     pub fn default_path() -> PathBuf {
-        let path = crate::utils::config_dir().join("config.toml");
-
-        if !path.exists() {
-            let default = Self::default();
-            let s = toml::to_string_pretty(&default).unwrap();
-            let mut f = std::fs::File::create(&path).unwrap();
-            f.write_all(s.as_bytes()).unwrap();
-        }
-
-        path
+        utils::config_dir().join("config.toml")
     }
 }
 

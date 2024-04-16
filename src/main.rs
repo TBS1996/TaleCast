@@ -72,7 +72,7 @@ impl From<Args> for Action {
         let catch_up = val.catch_up;
 
         let global_config = || match val.config.as_ref() {
-            Some(path) => GlobalConfig::load_from_path(path),
+            Some(path) => GlobalConfig::load_from_path(path).unwrap(),
             None => GlobalConfig::load(),
         };
 

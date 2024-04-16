@@ -301,7 +301,12 @@ impl Podcast {
             std::fs::File::create(&partial_path).unwrap()
         };
 
-        let mut req_builder = Client::new().get(episode.url);
+        let mut req_builder = reqwest::Client::builder()
+            .user_agent(&self.config.user_agent)
+            .redirect(reqwest::redirect::Policy::default())
+            .build()
+            .unwrap()
+            .get(episode.url);
 
         if downloaded > 0 {
             let range_header_value = format!("bytes={}-", downloaded);
@@ -311,18 +316,28 @@ impl Podcast {
         let response = req_builder.send().await.unwrap();
         let total_size = response.content_length().unwrap_or(0);
 
-        let ext = {
-            let content_type = response
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|ct| ct.to_str().ok())
-                .unwrap_or("application/octet-stream");
+        let ext = match PathBuf::from(episode.url)
+            .extension()
+            .map(|ext| ext.to_str().to_owned())
+            .flatten()
+        {
+            Some(ext) => ext.to_string(),
+            _ => {
+                let content_type = response
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|ct| ct.to_str().ok())
+                    .unwrap_or("application/octet-stream");
 
-            let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
+                let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
 
-            match extensions.contains(&"mp3") {
-                true => "mp3",
-                false => extensions.first().expect("extension not found."),
+                match extensions.contains(&"mp3") {
+                    true => "mp3".to_owned(),
+                    false => extensions
+                        .first()
+                        .expect("extension not found.")
+                        .to_string(),
+                }
             }
         };
 
@@ -355,11 +370,11 @@ impl Podcast {
     }
 
     async fn normalize_episode(&self, episode: &mut DownloadedEpisode<'_>) {
-        let mp3_tags = (episode.path().extension().unwrap() == "mp3")
-            .then_some(
-                crate::tags::set_mp3_tags(&self.channel, episode, &self.config.id3_tags).await,
-            )
-            .unwrap_or_default();
+        let mp3_tags = if episode.path().extension().unwrap() == "mp3" {
+            crate::tags::set_mp3_tags(&self.channel, episode, &self.config.id3_tags).await
+        } else {
+            id3::Tag::default()
+        };
 
         let datasource = DataSources::default()
             .set_id3(&mp3_tags)

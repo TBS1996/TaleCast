@@ -99,6 +99,7 @@ pub struct Config {
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
     pub style: IndicatifSettings,
+    pub user_agent: String,
     pub mode: DownloadMode,
 }
 
@@ -206,6 +207,10 @@ impl Config {
 
         let url = podcast_config.url;
         let style = global_config.style.clone();
+        let user_agent = global_config
+            .user_agent
+            .clone()
+            .unwrap_or_else(default_user_agent);
 
         Self {
             url,
@@ -217,6 +222,7 @@ impl Config {
             download_path,
             tracker_path,
             style,
+            user_agent,
         }
     }
 
@@ -247,9 +253,13 @@ impl Config {
     }
 }
 
+fn default_user_agent() -> String {
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36".to_string()
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct IndicatifSettings {
-    enabled: bool,
+    enabled: Option<bool>,
     download_bar: Option<String>,
     completed: Option<String>,
     hooks: Option<String>,
@@ -259,7 +269,7 @@ pub struct IndicatifSettings {
 impl Default for IndicatifSettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: None,
             download_bar: None,
             completed: None,
             hooks: None,
@@ -304,6 +314,7 @@ pub struct GlobalConfig {
     tracker_path: Option<String>,
     #[serde(default, skip_serializing_if = "IndicatifSettings::is_default")]
     style: IndicatifSettings,
+    user_agent: Option<String>,
 }
 
 impl GlobalConfig {
@@ -365,7 +376,7 @@ impl GlobalConfig {
     }
 
     pub fn is_download_bar_enabled(&self) -> bool {
-        self.style.enabled
+        self.style.enabled.unwrap_or(true)
     }
 }
 
@@ -382,6 +393,7 @@ impl Default for GlobalConfig {
             download_hook: None,
             tracker_path: None,
             style: Default::default(),
+            user_agent: None,
         }
     }
 }

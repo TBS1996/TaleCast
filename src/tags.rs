@@ -53,7 +53,7 @@ pub async fn set_mp3_tags<'a>(
     let file_path = &episode.path();
     let episode = &episode.inner();
 
-    let mut tags = id3::Tag::read_from_path(file_path).unwrap();
+    let mut tags = id3::Tag::read_from_path(file_path).unwrap_or_default();
 
     for (id, value) in custom_tags {
         tags.set_text(id, value);

@@ -12,7 +12,6 @@ use indicatif::MultiProgress;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
-use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write as IOWrite;

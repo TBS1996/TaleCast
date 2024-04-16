@@ -176,18 +176,26 @@ impl Config {
             .download_hook
             .into_val(global_config.download_hook.as_ref());
 
-        let download_path = podcast_config
+        let download_path_str = podcast_config
             .download_path
             .unwrap_or_else(|| global_config.download_path.clone());
 
-        let download_path = FullPattern::from_str(&download_path, vec![SourceType::Podcast]);
+        let download_path = FullPattern::from_str(&download_path_str, vec![SourceType::Podcast]);
 
         let tracker_path = match podcast_config
             .tracker_path
             .into_val(global_config.tracker_path.as_ref())
         {
             Some(tracker_path) => FullPattern::from_str(&tracker_path, vec![SourceType::Podcast]),
-            None => download_path.clone().append_text(".downloaded".to_owned()),
+            None => {
+                if download_path_str.ends_with('/') {
+                    let p = download_path_str + ".downloaded";
+                    FullPattern::from_str(&p, vec![SourceType::Podcast])
+                } else {
+                    let p = download_path_str + "/.downloaded";
+                    FullPattern::from_str(&p, vec![SourceType::Podcast])
+                }
+            }
         };
 
         let name_pattern = podcast_config

@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "talecast"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "chrono",
  "clap",

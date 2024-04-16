@@ -180,6 +180,7 @@ async fn main() {
             if config::PodcastConfigs::push(name.clone(), podcast) {
                 eprintln!("'{}' added!", name);
                 if catch_up {
+                    // Matches only the added podcast.
                     let filter = Regex::new(&format!("^{}$", &name)).unwrap();
                     config::PodcastConfigs::catch_up(Some(filter));
                 }
@@ -193,11 +194,13 @@ async fn main() {
             print,
             config,
         } => {
-            let mp = MultiProgress::new();
+            let mp = config
+                .is_download_bar_enabled()
+                .then_some(MultiProgress::new());
 
             let podcast_configs = config::PodcastConfigs::load().filter(filter);
             let longest_name = podcast_configs.longest_name(); // Used for formatting.
-            let podcasts = podcast::Podcast::load_all(&config, podcast_configs, Some(&mp)).await;
+            let podcasts = podcast::Podcast::load_all(&config, podcast_configs, mp.as_ref()).await;
 
             let futures = podcasts
                 .into_iter()

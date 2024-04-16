@@ -10,6 +10,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::time;
 
 /// Represents a [`PodcastConfig`] value that is either enabled, disabled,
 /// or deferring to the global config. Only valid for optional values.
@@ -97,6 +98,7 @@ pub struct Config {
     pub tracker_path: FullPattern,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
+    pub style: IndicatifSettings,
     pub mode: DownloadMode,
 }
 
@@ -203,6 +205,7 @@ impl Config {
         );
 
         let url = podcast_config.url;
+        let style = global_config.style.clone();
 
         Self {
             url,
@@ -213,7 +216,73 @@ impl Config {
             download_hook,
             download_path,
             tracker_path,
+            style,
         }
+    }
+
+    pub fn download_template(&self) -> String {
+        self.style
+            .download_bar
+            .clone()
+            .unwrap_or_else(IndicatifSettings::default_download_template)
+    }
+
+    pub fn completion_template(&self) -> String {
+        self.style
+            .completed
+            .clone()
+            .unwrap_or_else(IndicatifSettings::default_complete_template)
+    }
+
+    pub fn hook_template(&self) -> String {
+        self.style
+            .hooks
+            .clone()
+            .unwrap_or_else(IndicatifSettings::default_hooks)
+    }
+
+    pub fn spinner_speed(&self) -> time::Duration {
+        let millis = self.style.spinner_speed.unwrap_or(100);
+        time::Duration::from_millis(millis)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct IndicatifSettings {
+    enabled: bool,
+    download_bar: Option<String>,
+    completed: Option<String>,
+    hooks: Option<String>,
+    spinner_speed: Option<u64>,
+}
+
+impl Default for IndicatifSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            download_bar: None,
+            completed: None,
+            hooks: None,
+            spinner_speed: None,
+        }
+    }
+}
+
+impl IndicatifSettings {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+
+    fn default_download_template() -> String {
+        "{spinner:.green}  {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}".to_string()
+    }
+
+    fn default_complete_template() -> String {
+        "✅ {msg}".to_owned()
+    }
+
+    fn default_hooks() -> String {
+        "{spinner:.green} finishing up download hooks...".to_string()
     }
 }
 
@@ -233,6 +302,8 @@ pub struct GlobalConfig {
     id3_tags: HashMap<String, String>,
     download_hook: Option<PathBuf>,
     tracker_path: Option<String>,
+    #[serde(default, skip_serializing_if = "IndicatifSettings::is_default")]
+    style: IndicatifSettings,
 }
 
 impl GlobalConfig {
@@ -292,6 +363,10 @@ impl GlobalConfig {
     pub fn default_path() -> PathBuf {
         utils::config_dir().join("config.toml")
     }
+
+    pub fn is_download_bar_enabled(&self) -> bool {
+        self.style.enabled
+    }
 }
 
 impl Default for GlobalConfig {
@@ -306,6 +381,7 @@ impl Default for GlobalConfig {
             id3_tags: Default::default(),
             download_hook: None,
             tracker_path: None,
+            style: Default::default(),
         }
     }
 }

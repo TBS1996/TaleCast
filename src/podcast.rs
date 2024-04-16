@@ -241,12 +241,9 @@ impl Podcast {
 
     fn show_download_bar(&self) {
         if let Some(pb) = &self.progress_bar {
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green}  {msg} {bar:15.cyan/blue} {bytes}/{total_bytes}")
-                    .unwrap(),
-            );
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            let template = self.config().download_template();
+            pb.set_style(ProgressStyle::default_bar().template(&template).unwrap());
+            pb.enable_steady_tick(self.config().spinner_speed());
         }
     }
 
@@ -393,9 +390,9 @@ impl Podcast {
 
     fn mark_complete(&self) {
         if let Some(pb) = &self.progress_bar {
-            self.set_template("{msg}");
-            let msg = format!("✅ {}", &self.name);
-            pb.finish_with_message(msg);
+            let template = self.config().completion_template();
+            self.set_template(&template);
+            pb.finish_with_message(self.name.clone());
         }
     }
 
@@ -418,7 +415,8 @@ impl Podcast {
         }
 
         if !hook_handles.is_empty() {
-            self.set_template("{spinner:.green} finishing up download hooks...");
+            let template = self.config().hook_template();
+            self.set_template(&template);
             futures::future::join_all(hook_handles).await;
         }
 

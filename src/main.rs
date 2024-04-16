@@ -1,8 +1,8 @@
 use crate::config::GlobalConfig;
-use crate::podcast::Podcast;
 use clap::Parser;
 use futures::future;
 use indicatif::MultiProgress;
+use regex::Regex;
 use std::path::PathBuf;
 
 mod config;
@@ -52,7 +52,7 @@ struct Args {
         long,
         help = "Filter which podcasts to sync or export with a regex pattern"
     )]
-    filter: Option<regex::Regex>,
+    filter: Option<Regex>,
     #[arg(
         long,
         value_name = "FILE",
@@ -72,12 +72,12 @@ impl From<Args> for Action {
         let catch_up = val.catch_up;
 
         let global_config = || match val.config.as_ref() {
-            Some(path) => GlobalConfig::load_from_path(path).unwrap(),
+            Some(path) => GlobalConfig::load_from_path(path),
             None => GlobalConfig::load(),
         };
 
         if val.edit_config {
-            let path = utils::podcasts_toml();
+            let path = config::PodcastConfig::path();
             return Self::Edit { path };
         }
 
@@ -127,7 +127,7 @@ impl From<Args> for Action {
 
 enum Action {
     CatchUp {
-        filter: Option<regex::Regex>,
+        filter: Option<Regex>,
     },
     Edit {
         path: PathBuf,
@@ -138,7 +138,7 @@ enum Action {
     },
     Export {
         path: PathBuf,
-        filter: Option<regex::Regex>,
+        filter: Option<Regex>,
         config: GlobalConfig,
     },
     Add {
@@ -147,7 +147,7 @@ enum Action {
         catch_up: bool,
     },
     Sync {
-        filter: Option<regex::Regex>,
+        filter: Option<Regex>,
         config: GlobalConfig,
         print: bool,
     },
@@ -178,7 +178,7 @@ async fn main() {
             if config::PodcastConfigs::push(name.clone(), url) {
                 eprintln!("'{}' added!", name);
                 if catch_up {
-                    let filter = regex::Regex::new(&format!("^{}$", &name)).unwrap();
+                    let filter = Regex::new(&format!("^{}$", &name)).unwrap();
                     config::PodcastConfigs::catch_up(Some(filter));
                 }
             } else {
@@ -193,7 +193,7 @@ async fn main() {
         } => {
             let mp = MultiProgress::new();
 
-            let podcasts = Podcast::load_all(&config, filter.as_ref(), Some(&mp)).await;
+            let podcasts = podcast::Podcast::load_all(&config, filter.as_ref(), Some(&mp)).await;
             let longest_name = utils::longest_podcast_name_len(&podcasts); // Used for formatting.
 
             let futures = podcasts

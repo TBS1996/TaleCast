@@ -2,11 +2,14 @@ use crate::patterns::FullPattern;
 use crate::patterns::SourceType;
 use crate::utils;
 use crate::utils::Unix;
+use regex::Regex;
 use serde::de::IntoDeserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process;
 
 /// Represents a [`PodcastConfig`] value that is either enabled, disabled,
 /// or deferring to the global config. Only valid for optional values.
@@ -242,7 +245,12 @@ impl GlobalConfig {
     /// Note that this means any comments will unfortunately be removed.
     pub fn load() -> Self {
         let path = Self::default_path();
-        let config = Self::load_from_path(&path).unwrap_or_default();
+
+        let config: Self = fs::read_to_string(&path)
+            .ok()
+            .and_then(|str| toml::from_str(&str).ok())
+            .unwrap_or_default();
+
         config.save();
         config
     }
@@ -255,9 +263,29 @@ impl GlobalConfig {
         f.write_all(str.as_bytes()).unwrap();
     }
 
-    pub fn load_from_path(path: &Path) -> Option<Self> {
-        let str = std::fs::read_to_string(&path).ok()?;
-        toml::from_str(&str).ok()
+    /// For using a global config from a path specified as a commandline argument.
+    /// Main difference from the normal loading is that it won't create a default one if it's missing.
+    pub fn load_from_path(path: &Path) -> Self {
+        if !path.exists() {
+            eprintln!("no config located at {:?}", path);
+            process::exit(1);
+        };
+
+        let str = match fs::read_to_string(&path) {
+            Ok(str) => str,
+            Err(e) => {
+                eprintln!("unable to read given config file:{:?}\n{:?}", path, e);
+                process::exit(1);
+            }
+        };
+
+        match toml::from_str(&str) {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("unable to parse given config file: {:?}\n{:?}", path, e);
+                process::exit(1);
+            }
+        }
     }
 
     pub fn default_path() -> PathBuf {
@@ -307,7 +335,7 @@ impl PodcastConfigs {
         PodcastConfigs(map)
     }
 
-    pub fn filter(self, filter: Option<regex::Regex>) -> Self {
+    pub fn filter(self, filter: Option<Regex>) -> Self {
         let inner = self
             .0
             .into_iter()
@@ -322,7 +350,7 @@ impl PodcastConfigs {
 
     /// All podcasts matching the regex will not download episodes published earlier than current
     /// time. Podcasts with backlog mode ignored.
-    pub fn catch_up(filter: Option<regex::Regex>) {
+    pub fn catch_up(filter: Option<Regex>) {
         let mut podcasts = Self::load().filter(filter);
 
         for (name, config) in &mut podcasts.0 {
@@ -433,6 +461,16 @@ impl PodcastConfig {
             download_hook: Default::default(),
             tracker_path: Default::default(),
         }
+    }
+
+    pub fn path() -> PathBuf {
+        let path = utils::config_dir().join("podcasts.toml");
+
+        if !path.exists() {
+            fs::File::create(&path).unwrap();
+        }
+
+        path
     }
 
     pub fn catch_up(&mut self) -> bool {

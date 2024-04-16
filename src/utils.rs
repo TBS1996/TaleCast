@@ -40,16 +40,6 @@ pub fn config_dir() -> PathBuf {
     path
 }
 
-pub fn podcasts_toml() -> PathBuf {
-    let path = config_dir().join("podcasts.toml");
-
-    if !path.exists() {
-        std::fs::File::create(&path).unwrap();
-    }
-
-    path
-}
-
 pub fn current_unix() -> i64 {
     chrono::Utc::now().timestamp()
 }

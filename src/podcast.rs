@@ -12,6 +12,7 @@ use indicatif::MultiProgress;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
+use regex::Regex;
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -60,7 +61,7 @@ impl Podcast {
 
     pub async fn load_all(
         global_config: &GlobalConfig,
-        filter: Option<&regex::Regex>,
+        filter: Option<&Regex>,
         mp: Option<&MultiProgress>,
     ) -> Vec<Self> {
         let configs = PodcastConfigs::load();

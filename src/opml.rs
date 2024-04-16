@@ -1,12 +1,14 @@
 use crate::config;
 use crate::config::GlobalConfig;
 use crate::config::PodcastConfig;
+use crate::podcast;
 use opml::{Body, Head, Outline, OPML};
+use regex::Regex;
 use std::io::Write as IoWrite;
 use std::path::Path;
 
-pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<regex::Regex>) {
-    let podcasts = crate::Podcast::load_all(&global_config, filter.as_ref(), None).await;
+pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<Regex>) {
+    let podcasts = podcast::Podcast::load_all(&global_config, filter.as_ref(), None).await;
 
     let mut opml = OPML {
         head: Some(Head {

@@ -55,6 +55,8 @@ impl<'a> DownloadedEpisode<'a> {
     }
 
     pub fn rename(&mut self, new_name: String) {
+        let new_name = sanitize_filename::sanitize(&new_name);
+
         let new_path = match self.path.extension() {
             Some(extension) => {
                 let mut new_path = self.path.with_file_name(new_name);

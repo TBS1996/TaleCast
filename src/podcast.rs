@@ -282,8 +282,8 @@ impl Podcast {
 
     pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
         let partial_path = {
-            let file_name = format!("{}.partial", episode.guid);
-            self.download_folder().join(file_name.replace("/", "-"))
+            let file_name = sanitize_filename::sanitize(&format!("{}.partial", episode.guid));
+            self.download_folder().join(file_name)
         };
 
         let mut downloaded: u64 = 0;
@@ -339,6 +339,11 @@ impl Podcast {
                 }
             }
         };
+
+        let ext = ext
+            .split_once("?")
+            .map(|(l, _)| l.to_string())
+            .unwrap_or(ext);
 
         if let Some(pb) = &self.progress_bar {
             pb.set_length(total_size);

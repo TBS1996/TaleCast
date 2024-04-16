@@ -8,7 +8,8 @@ use std::io::Write as IoWrite;
 use std::path::Path;
 
 pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<Regex>) {
-    let podcasts = podcast::Podcast::load_all(&global_config, filter.as_ref(), None).await;
+    let podcast_configs = config::PodcastConfigs::load().filter(filter);
+    let podcasts = podcast::Podcast::load_all(&global_config, podcast_configs, None).await;
 
     let mut opml = OPML {
         head: Some(Head {

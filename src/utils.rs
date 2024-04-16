@@ -154,21 +154,6 @@ pub async fn download_text(url: &str) -> String {
         .unwrap()
 }
 
-/// Longest podcast name is used for formatting.
-pub fn longest_podcast_name_len(pods: &Vec<crate::podcast::Podcast>) -> usize {
-    match pods
-        .iter()
-        .map(|podcast| podcast.name().chars().count())
-        .max()
-    {
-        Some(len) => len,
-        None => {
-            eprintln!("no podcasts configured");
-            std::process::exit(1);
-        }
-    }
-}
-
 pub fn edit_file(path: &Path) {
     let editor = match std::env::var("EDITOR") {
         Ok(editor) => editor,

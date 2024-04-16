@@ -12,7 +12,6 @@ use indicatif::MultiProgress;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
-use regex::Regex;
 use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -61,11 +60,9 @@ impl Podcast {
 
     pub async fn load_all(
         global_config: &GlobalConfig,
-        filter: Option<&Regex>,
+        configs: PodcastConfigs,
         mp: Option<&MultiProgress>,
     ) -> Vec<Self> {
-        let configs = PodcastConfigs::load();
-
         if configs.is_empty() {
             eprintln!("No podcasts configured!");
             eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the {:?} file.", crate::APPNAME, &PodcastConfigs::path());
@@ -76,12 +73,6 @@ impl Podcast {
         let mut podcasts = vec![];
         eprintln!("fetching podcasts...");
         for (name, config) in configs.0 {
-            if let Some(re) = filter {
-                if !re.is_match(&name) {
-                    continue;
-                }
-            }
-
             let config = Config::new(&global_config, config);
             let xml_string = utils::download_text(&config.url).await;
             let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();

@@ -42,7 +42,7 @@ struct Args {
     #[arg(
         short,
         long,
-        help = "Catch up on podcasts. Can be combined with filter, add, and import"
+        help = "Configure to skip episodes published prior to current time. Can be combined with filter, add, and import"
     )]
     catch_up: bool,
     #[arg(short, long, num_args = 2, value_names = &["URL", "NAME"], help = "Add new podcast")]
@@ -175,7 +175,9 @@ async fn main() {
             url,
             catch_up,
         } => {
-            if config::PodcastConfigs::push(name.clone(), url) {
+            let podcast = config::PodcastConfig::new(url);
+
+            if config::PodcastConfigs::push(name.clone(), podcast) {
                 eprintln!("'{}' added!", name);
                 if catch_up {
                     let filter = Regex::new(&format!("^{}$", &name)).unwrap();
@@ -193,8 +195,9 @@ async fn main() {
         } => {
             let mp = MultiProgress::new();
 
-            let podcasts = podcast::Podcast::load_all(&config, filter.as_ref(), Some(&mp)).await;
-            let longest_name = utils::longest_podcast_name_len(&podcasts); // Used for formatting.
+            let podcast_configs = config::PodcastConfigs::load().filter(filter);
+            let longest_name = podcast_configs.longest_name(); // Used for formatting.
+            let podcasts = podcast::Podcast::load_all(&config, podcast_configs, Some(&mp)).await;
 
             let futures = podcasts
                 .into_iter()

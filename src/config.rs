@@ -132,7 +132,8 @@ impl Config {
                 }
 
                 if podcast_config.max_episodes.is_enabled() {
-                    eprintln!("'max_episodes' not compatible with backlog mode. Consider moving the start_date variable.");
+                    eprintln!("'max_episodes' not compatible with backlog mode.");
+                    eprintln!("If you want to limit the amount of episodes to download, consider changing the 'backlog_start' setting.");
                     std::process::exit(1);
                 }
 
@@ -335,6 +336,16 @@ impl PodcastConfigs {
         PodcastConfigs(map)
     }
 
+    pub fn longest_name(&self) -> usize {
+        match self.0.iter().map(|(name, _)| name.chars().count()).max() {
+            Some(len) => len,
+            None => {
+                eprintln!("no podcasts configured");
+                std::process::exit(1);
+            }
+        }
+    }
+
     pub fn filter(self, filter: Option<Regex>) -> Self {
         let inner = self
             .0
@@ -402,13 +413,16 @@ impl PodcastConfigs {
         podcasts.save_to_file();
     }
 
-    pub fn push(name: String, url: String) -> bool {
+    /// Appends the `podcast.toml` file with the given podcast.
+    ///
+    /// If a podcast with the same name already exist,
+    /// it does nothing and will return false. Otherwise true.
+    pub fn push(name: String, podcast: PodcastConfig) -> bool {
         let mut podcasts = Self::load();
         if podcasts.0.contains_key(&name) {
             false
         } else {
-            let new_podcast = PodcastConfig::new(url);
-            podcasts.0.insert(name, new_podcast);
+            podcasts.0.insert(name, podcast);
             podcasts.save_to_file();
 
             true
@@ -473,6 +487,10 @@ impl PodcastConfig {
         path
     }
 
+    /// Changes the `earliest_date` setting to the current time.
+    ///
+    /// This means only episodes published after this function was called will be downloaded.
+    /// Remember to save after calling this function.
     pub fn catch_up(&mut self) -> bool {
         use chrono::DateTime;
 

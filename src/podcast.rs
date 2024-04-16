@@ -284,7 +284,7 @@ impl Podcast {
     pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
         let partial_path = {
             let file_name = format!("{}.partial", episode.guid);
-            self.download_folder().join(file_name)
+            self.download_folder().join(file_name.replace("/", "-"))
         };
 
         let mut downloaded: u64 = 0;

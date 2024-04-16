@@ -1,4 +1,6 @@
+use crate::config;
 use crate::config::GlobalConfig;
+use crate::config::PodcastConfig;
 use opml::{Body, Head, Outline, OPML};
 use std::io::Write as IoWrite;
 use std::path::Path;
@@ -41,11 +43,13 @@ pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<regex
         .unwrap();
 }
 
-pub fn import(p: &Path) {
+use std::collections::HashMap;
+
+pub fn import(p: &Path, catch_up: bool) {
     let opml_string = std::fs::read_to_string(p).unwrap();
     let opml = opml::OPML::from_str(&opml_string).unwrap();
 
-    let mut podcasts = vec![];
+    let mut podcasts = HashMap::default();
 
     for podcast in opml.body.outlines.into_iter() {
         let title = {
@@ -58,7 +62,7 @@ pub fn import(p: &Path) {
             }
         };
 
-        let (title, url) = match (title, podcast.xml_url) {
+        let (name, mut podcast) = match (title, podcast.xml_url) {
             (None, None) => {
                 eprintln!("importing failed due to feed with missing title and url");
                 std::process::exit(1);
@@ -77,15 +81,19 @@ pub fn import(p: &Path) {
                 );
                 std::process::exit(1);
             }
-            (Some(title), Some(url)) => (title, url),
+            (Some(title), Some(url)) => (title, PodcastConfig::new(url)),
         };
 
-        podcasts.push((title, url));
+        if catch_up {
+            podcast.catch_up();
+        }
+
+        podcasts.insert(name, podcast);
     }
 
     if podcasts.is_empty() {
         eprintln!("no podcasts found.");
     } else {
-        crate::utils::append_podcasts(podcasts);
+        config::PodcastConfigs::extend(podcasts);
     }
 }

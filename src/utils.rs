@@ -5,7 +5,6 @@ use quick_xml::{
 use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::Write as IOWrite;
 use std::path::Path;
@@ -148,51 +147,6 @@ pub fn truncate_string(s: &str, max_width: usize) -> String {
 #[derive(Serialize)]
 struct BasicPodcast {
     url: String,
-}
-
-/// Extends the podcasts.toml file with new podcasts.
-///
-/// The reason it doesn't simply deserialize, modify, then serialize, is to not overrwite comments
-/// in the config.
-pub fn append_podcasts(name_and_url: Vec<(String, String)>) -> bool {
-    let path = crate::utils::podcasts_toml();
-    let current_podcasts = crate::config::PodcastConfig::load_all();
-
-    let config_appendix = {
-        let mut map = HashMap::new();
-
-        for (name, url) in name_and_url {
-            if current_podcasts.contains_key(&name) {
-                continue;
-            }
-            let pod = BasicPodcast { url };
-            map.insert(name, pod);
-        }
-
-        if map.is_empty() {
-            return false;
-        }
-
-        toml::to_string_pretty(&map).unwrap()
-    };
-
-    let new_config = match path.exists() {
-        true => {
-            let binding = std::fs::read_to_string(&path).unwrap();
-            let old_string = binding.trim_end_matches('\n');
-
-            if old_string.is_empty() {
-                config_appendix
-            } else {
-                format!("{}\n\n{}", old_string, config_appendix)
-            }
-        }
-        false => config_appendix,
-    };
-
-    std::fs::write(&path, new_config).unwrap();
-
-    true
 }
 
 pub async fn download_text(url: &str) -> String {

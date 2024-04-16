@@ -56,6 +56,7 @@ on the page of a given podcast there, click 'copy rss'. This is the url you shou
   -i, --import <FILE>     Import podcasts from an OPML file
   -e, --export <FILE>     Export your podcasts to an OPML file
   -p, --print             Print the downloaded paths to stdout
+  -c, --catch-up          Catch up on podcasts. Can be combined with filter, add, and import
   -a, --add <URL> <NAME>  Add new podcast
   -f, --filter <FILTER>   Filter which podcasts to sync or export with a regex pattern
       --config <FILE>     Override the path to the config file

@@ -1,13 +1,15 @@
 use crate::patterns::FullPattern;
 use crate::patterns::SourceType;
+use crate::utils;
 use crate::utils::Unix;
+use serde::de::IntoDeserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// Represents a [`PodcastConfig`] value that is either enabled, disabled, or we defer to the
-/// global config. Only valid for optional values.
+/// Represents a [`PodcastConfig`] value that is either enabled, disabled,
+/// or deferring to the global config. Only valid for optional values.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum ConfigOption<T> {
     /// Defer to the value in the global config.
@@ -29,6 +31,43 @@ impl<T: Clone> ConfigOption<T> {
             Self::Disabled => None,
             Self::Enabled(t) => Some(t),
             Self::UseGlobal => global_value.cloned(),
+        }
+    }
+}
+
+impl<'de, T> Deserialize<'de> for ConfigOption<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+        match value {
+            None => Ok(ConfigOption::UseGlobal),
+            Some(serde_json::Value::Bool(false)) => Ok(ConfigOption::Disabled),
+            Some(v) => T::deserialize(v.into_deserializer())
+                .map(ConfigOption::Enabled)
+                .map_err(|_| D::Error::custom("Invalid type for configuration option")),
+        }
+    }
+}
+
+impl<T> Serialize for ConfigOption<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match *self {
+            ConfigOption::Enabled(ref value) => value.serialize(serializer),
+            ConfigOption::Disabled => serializer.serialize_bool(false),
+            ConfigOption::UseGlobal => serializer.serialize_none(),
         }
     }
 }
@@ -146,8 +185,7 @@ impl Config {
 
         let name_pattern = podcast_config
             .name_pattern
-            .into_val(Some(&global_config.name_pattern))
-            .unwrap();
+            .unwrap_or_else(|| global_config.name_pattern.clone());
 
         let name_pattern = FullPattern::from_str(&name_pattern, SourceType::all());
 
@@ -187,7 +225,7 @@ pub struct GlobalConfig {
     max_days: Option<i64>,
     max_episodes: Option<i64>,
     earliest_date: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     id3_tags: HashMap<String, String>,
     download_hook: Option<PathBuf>,
     tracker_path: Option<String>,
@@ -247,97 +285,162 @@ pub enum DownloadMode {
     },
 }
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct PodcastConfig {
-    url: String,
-    #[serde(alias = "path")]
-    download_path: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_config_option_int")]
-    max_days: ConfigOption<i64>,
-    #[serde(default, deserialize_with = "deserialize_config_option_int")]
-    max_episodes: ConfigOption<i64>,
-    #[serde(default, deserialize_with = "deserialize_config_option_string")]
-    earliest_date: ConfigOption<String>,
-    #[serde(default, deserialize_with = "deserialize_config_option_pathbuf")]
-    download_hook: ConfigOption<PathBuf>,
-    #[serde(default, deserialize_with = "deserialize_config_option_string")]
-    tracker_path: ConfigOption<String>,
-    backlog_start: Option<String>,
-    backlog_interval: Option<i64>,
-    #[serde(default)]
-    id3_tags: HashMap<String, String>,
-    #[serde(default, deserialize_with = "deserialize_config_option_string")]
-    name_pattern: ConfigOption<String>,
-    id_pattern: Option<String>,
-}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PodcastConfigs(pub HashMap<String, PodcastConfig>);
 
-impl PodcastConfig {
-    pub fn load_all() -> HashMap<String, Self> {
-        let path = crate::utils::podcasts_toml();
+impl PodcastConfigs {
+    pub fn load() -> Self {
+        let path = Self::path();
+
+        let config_str = std::fs::read_to_string(&path).unwrap();
+        let map: HashMap<String, PodcastConfig> = toml::from_str(&config_str).unwrap();
+
+        PodcastConfigs(map)
+    }
+
+    pub fn filter(self, filter: Option<regex::Regex>) -> Self {
+        let inner = self
+            .0
+            .into_iter()
+            .filter(|(name, _)| match filter {
+                Some(ref filter) => filter.is_match(&name),
+                None => true,
+            })
+            .collect();
+
+        Self(inner)
+    }
+
+    /// All podcasts matching the regex will not download episodes published earlier than current
+    /// time. Podcasts with backlog mode ignored.
+    pub fn catch_up(filter: Option<regex::Regex>) {
+        let mut podcasts = Self::load().filter(filter);
+
+        for (name, config) in &mut podcasts.0 {
+            if config.catch_up() {
+                eprintln!("caught up with {}", &name);
+            }
+        }
+
+        podcasts.save_modified();
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn save_modified(self) {
+        let mut all_podcasts = Self::load();
+        for (name, config) in self.0 {
+            all_podcasts.0.insert(name, config);
+        }
+
+        all_podcasts.save_to_file();
+    }
+
+    pub fn save_to_file(self) {
+        use std::fs::File;
+
+        let str = toml::to_string(&self).unwrap();
+        let path = Self::path();
+
+        File::create(&path)
+            .unwrap()
+            .write_all(str.as_bytes())
+            .unwrap();
+    }
+
+    pub fn extend(new_podcasts: HashMap<String, PodcastConfig>) {
+        let mut podcasts = Self::load();
+        for (name, podcast) in new_podcasts {
+            if !podcasts.0.contains_key(&name) {
+                podcasts.0.insert(name, podcast);
+            }
+        }
+
+        podcasts.save_to_file();
+    }
+
+    pub fn push(name: String, url: String) -> bool {
+        let mut podcasts = Self::load();
+        if podcasts.0.contains_key(&name) {
+            false
+        } else {
+            let new_podcast = PodcastConfig::new(url);
+            podcasts.0.insert(name, new_podcast);
+            podcasts.save_to_file();
+
+            true
+        }
+    }
+
+    pub fn path() -> PathBuf {
+        let path = utils::config_dir().join("podcasts.toml");
+
         if !path.exists() {
             std::fs::File::create(&path).unwrap();
         }
 
-        let config_str = std::fs::read_to_string(&path).unwrap();
-        let map: HashMap<String, Self> = toml::from_str(&config_str).unwrap();
-        if map.is_empty() {
-            eprintln!("No podcasts configured!");
-            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the {:?} file.", crate::APPNAME, &path);
-            std::process::exit(1);
+        path
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct PodcastConfig {
+    url: String,
+    name_pattern: Option<String>,
+    id_pattern: Option<String>,
+    #[serde(alias = "path")]
+    download_path: Option<String>,
+    backlog_start: Option<String>,
+    backlog_interval: Option<i64>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    id3_tags: HashMap<String, String>,
+    max_days: ConfigOption<i64>,
+    max_episodes: ConfigOption<i64>,
+    earliest_date: ConfigOption<String>,
+    download_hook: ConfigOption<PathBuf>,
+    tracker_path: ConfigOption<String>,
+}
+
+impl PodcastConfig {
+    pub fn new(url: String) -> Self {
+        Self {
+            url,
+            name_pattern: Default::default(),
+            id_pattern: Default::default(),
+            download_path: Default::default(),
+            backlog_start: Default::default(),
+            backlog_interval: Default::default(),
+            id3_tags: Default::default(),
+            max_days: Default::default(),
+            max_episodes: Default::default(),
+            earliest_date: Default::default(),
+            download_hook: Default::default(),
+            tracker_path: Default::default(),
         }
-        map
     }
-}
 
-fn deserialize_config_option_int<'de, D>(deserializer: D) -> Result<ConfigOption<i64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde_json::Value;
+    pub fn catch_up(&mut self) -> bool {
+        use chrono::DateTime;
 
-    let value = Option::<Value>::deserialize(deserializer)?;
-    match value {
-        Some(Value::Number(n)) if n.is_i64() => Ok(ConfigOption::Enabled(n.as_i64().unwrap())),
-        Some(Value::Bool(false)) => Ok(ConfigOption::Disabled),
-        _ => Err(serde::de::Error::custom(
-            "Invalid type for configuration option",
-        )),
-    }
-}
+        let unix = utils::current_unix();
+        let current_date = DateTime::from_timestamp(unix, 0)
+            .unwrap()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
 
-fn deserialize_config_option_string<'de, D>(
-    deserializer: D,
-) -> Result<ConfigOption<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde_json::Value;
+        if self.backlog_start.is_some() || self.backlog_interval.is_some() {
+            return false;
+        }
 
-    let value = Option::<Value>::deserialize(deserializer)?;
-    match value {
-        Some(Value::String(s)) => Ok(ConfigOption::Enabled(s)),
-        Some(Value::Bool(false)) => Ok(ConfigOption::Disabled),
-        _ => Err(serde::de::Error::custom(
-            "Invalid type for configuration option",
-        )),
-    }
-}
+        self.earliest_date = ConfigOption::Enabled(current_date.clone());
 
-fn deserialize_config_option_pathbuf<'de, D>(
-    deserializer: D,
-) -> Result<ConfigOption<PathBuf>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde_json::Value;
-
-    let value = Option::<Value>::deserialize(deserializer)?;
-    match value {
-        Some(Value::String(s)) => Ok(ConfigOption::Enabled(PathBuf::from(&s))),
-        Some(Value::Bool(false)) => Ok(ConfigOption::Disabled),
-        _ => Err(serde::de::Error::custom(
-            "Invalid type for configuration option",
-        )),
+        true
     }
 }

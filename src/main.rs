@@ -39,7 +39,11 @@ struct Args {
     export: Option<PathBuf>,
     #[arg(short, long, help = "Print the downloaded paths to stdout")]
     print: bool,
-    #[arg(short, long, help = "Catch up on podcast")]
+    #[arg(
+        short,
+        long,
+        help = "Catch up on podcasts. Can be combined with filter, add, and import"
+    )]
     catch_up: bool,
     #[arg(short, long, num_args = 2, value_names = &["URL", "NAME"], help = "Add new podcast")]
     add: Vec<String>,
@@ -65,6 +69,7 @@ impl From<Args> for Action {
     fn from(val: Args) -> Self {
         let filter = val.filter;
         let print = val.print;
+        let catch_up = val.catch_up;
 
         let global_config = || match val.config.as_ref() {
             Some(path) => GlobalConfig::load_from_path(path),
@@ -82,7 +87,7 @@ impl From<Args> for Action {
         }
 
         if let Some(path) = val.import {
-            return Self::Import { path };
+            return Self::Import { path, catch_up };
         }
 
         if let Some(path) = val.export {
@@ -99,7 +104,15 @@ impl From<Args> for Action {
             let url = val.add[0].to_string();
             let name = val.add[1].to_string();
 
-            return Self::Add { url, name };
+            return Self::Add {
+                url,
+                name,
+                catch_up,
+            };
+        }
+
+        if catch_up {
+            return Self::CatchUp { filter };
         }
 
         let config = global_config();
@@ -113,11 +126,15 @@ impl From<Args> for Action {
 }
 
 enum Action {
+    CatchUp {
+        filter: Option<regex::Regex>,
+    },
     Edit {
         path: PathBuf,
     },
     Import {
         path: PathBuf,
+        catch_up: bool,
     },
     Export {
         path: PathBuf,
@@ -127,6 +144,7 @@ enum Action {
     Add {
         url: String,
         name: String,
+        catch_up: bool,
     },
     Sync {
         filter: Option<regex::Regex>,
@@ -140,9 +158,11 @@ async fn main() {
     let args = Args::parse();
 
     match Action::from(args) {
-        Action::Import { path } => opml::import(&path),
+        Action::Import { path, catch_up } => opml::import(&path, catch_up),
 
         Action::Edit { path } => utils::edit_file(&path),
+
+        Action::CatchUp { filter } => config::PodcastConfigs::catch_up(filter),
 
         Action::Export {
             path,
@@ -150,9 +170,17 @@ async fn main() {
             filter,
         } => opml::export(&path, &config, filter).await,
 
-        Action::Add { name, url } => {
-            if utils::append_podcasts(vec![(name.clone(), url)]) {
+        Action::Add {
+            name,
+            url,
+            catch_up,
+        } => {
+            if config::PodcastConfigs::push(name.clone(), url) {
                 eprintln!("'{}' added!", name);
+                if catch_up {
+                    let filter = regex::Regex::new(&format!("^{}$", &name)).unwrap();
+                    config::PodcastConfigs::catch_up(Some(filter));
+                }
             } else {
                 eprintln!("'{}' already exists!", name);
             }

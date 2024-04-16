@@ -1,13 +1,10 @@
 use crate::config::DownloadMode;
-use crate::config::{Config, GlobalConfig, PodcastConfig};
+use crate::config::{Config, GlobalConfig, PodcastConfigs};
 use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
 use crate::patterns::DataSources;
 use crate::patterns::Evaluate;
-use crate::utils::current_unix;
-use crate::utils::get_guid;
-use crate::utils::remove_xml_namespaces;
-use crate::utils::truncate_string;
+use crate::utils;
 use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
 use futures_util::StreamExt;
@@ -23,7 +20,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 fn xml_to_value(xml: &str) -> Value {
-    let xml = remove_xml_namespaces(&xml, NAMESPACE_ALTER);
+    let xml = utils::remove_xml_namespaces(&xml, NAMESPACE_ALTER);
     let conf = XmlConfig::new_with_defaults();
     xml_string_to_json(xml, &conf).unwrap()
 }
@@ -66,12 +63,18 @@ impl Podcast {
         filter: Option<&regex::Regex>,
         mp: Option<&MultiProgress>,
     ) -> Vec<Self> {
-        let configs = PodcastConfig::load_all();
+        let configs = PodcastConfigs::load();
+
+        if configs.is_empty() {
+            eprintln!("No podcasts configured!");
+            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the {:?} file.", crate::APPNAME, &PodcastConfigs::path());
+            std::process::exit(1);
+        }
 
         let podcast_qty = configs.len();
         let mut podcasts = vec![];
         eprintln!("fetching podcasts...");
-        for (name, config) in configs {
+        for (name, config) in configs.0 {
             if let Some(re) = filter {
                 if !re.is_match(&name) {
                     continue;
@@ -79,7 +82,7 @@ impl Podcast {
             }
 
             let config = Config::new(&global_config, config);
-            let xml_string = crate::utils::download_text(&config.url).await;
+            let xml_string = utils::download_text(&config.url).await;
             let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
             let xml = xml_to_value(&xml_string);
 
@@ -121,7 +124,7 @@ impl Podcast {
 
         for item in raw_items {
             let item = item.as_object().unwrap();
-            let guid = get_guid(item);
+            let guid = utils::get_guid(item);
             map.insert(guid, item);
         }
 
@@ -161,7 +164,7 @@ impl Podcast {
 
         match &self.config.mode {
             DownloadMode::Backlog { start, interval } => {
-                let days_passed = (current_unix() - start.as_secs() as i64) / 86400;
+                let days_passed = (utils::current_unix() - start.as_secs() as i64) / 86400;
                 let current_backlog_index = days_passed / interval;
 
                 current_backlog_index >= episode.index as i64
@@ -174,7 +177,7 @@ impl Podcast {
             } => {
                 let max_days_exceeded = || {
                     max_days.is_some_and(|max_days| {
-                        (current_unix() - episode.published) > max_days as i64 * 86400
+                        (utils::current_unix() - episode.published) > max_days as i64 * 86400
                     })
                 };
 
@@ -266,7 +269,7 @@ impl Podcast {
             let fitted_episode_title = {
                 let title_length = 30;
                 let padded = &format!("{:<width$}", episode.title, width = title_length);
-                truncate_string(padded, title_length)
+                utils::truncate_string(padded, title_length)
             };
 
             let msg = format!(
@@ -480,7 +483,7 @@ impl DownloadedEpisodes {
             file,
             "{} {} \"{}\"",
             id,
-            current_unix(),
+            utils::current_unix(),
             episode.as_ref().title
         )
         .unwrap();

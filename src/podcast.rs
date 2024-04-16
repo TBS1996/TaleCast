@@ -282,7 +282,8 @@ impl Podcast {
 
     pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
         let partial_path = {
-            let file_name = sanitize_filename::sanitize(&format!("{}.partial", episode.guid));
+            let file_name = sanitize_filename::sanitize(&episode.guid);
+            let file_name = format!("{}.partial", file_name);
             self.download_folder().join(file_name)
         };
 

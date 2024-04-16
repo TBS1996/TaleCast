@@ -77,12 +77,12 @@ impl From<Args> for Action {
         };
 
         if val.edit_config {
-            let path = config::PodcastConfig::path();
+            let path = GlobalConfig::default_path();
             return Self::Edit { path };
         }
 
         if val.edit_podcasts {
-            let path = GlobalConfig::default_path();
+            let path = config::PodcastConfig::path();
             return Self::Edit { path };
         }
 

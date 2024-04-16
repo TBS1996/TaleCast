@@ -318,11 +318,10 @@ impl Podcast {
 
         let ext = match PathBuf::from(episode.url)
             .extension()
-            .map(|ext| ext.to_str().to_owned())
-            .flatten()
+            .and_then(|ext| ext.to_str().map(String::from))
         {
             Some(ext) => ext.to_string(),
-            _ => {
+            None => {
                 let content_type = response
                     .headers()
                     .get(reqwest::header::CONTENT_TYPE)

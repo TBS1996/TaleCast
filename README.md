@@ -40,6 +40,8 @@ You can get it with `cargo install talecast`.
 If you haven't used rust before, just run the shell command from the official website: https://www.rust-lang.org/learn/get-started  
 after this you should be able to do `cargo install talecast`
 
+Talecast is available in the `Arch User Repository (AUR)` for Arch Linux users. You can install it using your preferred AUR helper, such as paru or yay. To install Talecast with paru, run the following command:
+`paru -S talecast-git`
 
 ## how to add podcasts?
 

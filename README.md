@@ -32,21 +32,32 @@ If you want to sync with your phone you could consider using syncthing.
 - Pretty graphics
 - Filter which episodes to sync or export with regex patterns
 - Built-in symlink support
-   
 
-## how to install?
+## Installation
 
-You'll need to have rust installed.   
-You can get it with `cargo install talecast`.  
-  
-If you haven't used rust before, just run the shell command from the official website: https://www.rust-lang.org/learn/get-started  
-after this you should be able to do `cargo install talecast`
+### Using Cargo
 
-Talecast is available in the `Arch User Repository (AUR)` for Arch Linux users. You can install it using your preferred AUR helper, such as paru or yay. To install Talecast with paru, run the following command:
-`paru -S talecast-git`
+You'll need to have Rust installed. You can get Talecast with `cargo install talecast`. If you haven't used Rust before, just run the shell command from the official website: [https://www.rust-lang.org/learn/get-started](https://www.rust-lang.org/learn/get-started)
 
-... if you have experience packaging for a package manager not listed here, it would be greatly appreciated if you add it and tell me about it!
+After this, you should be able to do:
 
+```bash
+cargo install talecast
+```
+
+### Arch Linux (AUR)
+
+Talecast is available in the [Arch User Repository (AUR)](https://aur.archlinux.org/packages/talecast-git) for Arch Linux users. You can install it using your preferred AUR helper, such as `paru` or `yay`.
+
+To install Talecast with `paru`, run the following command:
+
+```bash
+paru -S talecast-git
+```
+
+### Other Package Managers
+
+If you have experience packaging for a package manager not listed here, it would be greatly appreciated if you add it and let me know about it!
 ## how to add podcasts?
 
 Some different methods:;

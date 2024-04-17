@@ -8,13 +8,14 @@ Simple CLI podcast manager.
 
 
 
-Check this video for a quick tutorial:  
+Check this video for a quick tutorial: (although this README is more up to date)  
 [![Watch the video](https://img.youtube.com/vi/TKoToA6MGdY/0.jpg)](https://www.youtube.com/watch?v=TKoToA6MGdY)
 
 If you want to sync with your phone you could consider using syncthing. 
 
 ## Main features
 
+- Search and add podcasts directly from the terminal
 - Easy to configure which episodes to be downloaded
 - Mp3 tags normalization
 - Granular configuration control of each podcast
@@ -43,6 +44,8 @@ after this you should be able to do `cargo install talecast`
 Talecast is available in the `Arch User Repository (AUR)` for Arch Linux users. You can install it using your preferred AUR helper, such as paru or yay. To install Talecast with paru, run the following command:
 `paru -S talecast-git`
 
+... if you have experience packaging for a package manager not listed here, it would be greatly appreciated if you add it and tell me about it!
+
 ## how to add podcasts?
 
 Some different methods:;
@@ -54,7 +57,7 @@ Some different methods:;
 for finding podcast urls, I recommend this website: https://podcastindex.org/   
 on the page of a given podcast there, click 'copy rss'. This is the url you should use! 
 
-If you add podcasts from commandline, you can combine it with the `catch-up` argument to only download podcasts released in the future.
+If you add podcasts from commandline, you can combine it with the `catch-up` argument to only download upcoming episodes.
 
 for example: `talecast -cs this american life`.
 
@@ -135,16 +138,15 @@ note that not all patterns are available for each setting, for example, the down
 
 A way to systematically go through the backlog of a podacst, starting from the first episode. Perfect for podcasts where older videos are as relevant as newer ones, and especially if you're supposed to go through them chronologically. You set the date you start with `backlog_start`, and an interval with `backlog_interval`. If you set `backlog_start` and then sync, you'll download the first episode of the podcast. After `backlog_interval`` days have passed, it'll download the second episode, and so on.
 
-## how to report bugs
+## Bugs and feature requests
 
-Just use the github issues! but first, verify that you have the latest version of talecast in case I already have fixed it.
+If you have any feedback just use the github issue page! If it's a bug, make sure you have the latest version in case I've already fixed it.
 
-
-# todo  
+## todo  
 
 - better error handling. Atm i unwrap a lot since stopping the program when something goes wrong is generally fine for scripts and unwrap gives a lot of nice debug information.
 - integrate opml better. Currently if you import opml and then export you might lose some metadata. 
-- add to package managers (help appreciated here!) 
+- add to more package managers (help appreciated here!) 
 - more tests
 - maybe make it more generalizable for other kind of media content?
 - atom support? do any podcasts even use atom?

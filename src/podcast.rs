@@ -335,7 +335,7 @@ impl Podcast {
             let fitted_episode_title = {
                 let title_length = self.config().title_length();
                 let padded = &format!("{:<width$}", episode.title, width = title_length);
-                utils::truncate_string(padded, title_length)
+                utils::truncate_string(padded, title_length, true)
             };
 
             let msg = format!(

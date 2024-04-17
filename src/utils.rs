@@ -119,19 +119,29 @@ pub fn remove_xml_namespaces(xml: &str, replacement: &str) -> String {
     String::from_utf8(result).expect("Found invalid UTF-8")
 }
 
-pub fn truncate_string(s: &str, max_width: usize) -> String {
+pub fn truncate_string(s: &str, max_width: usize, append_dots: bool) -> String {
     let mut width = 0;
     let mut truncated = String::new();
+    let mut reached_max = false;
 
     for c in s.chars() {
         let mut buf = [0; 4];
         let encoded_char = c.encode_utf8(&mut buf);
         let char_width = unicode_width::UnicodeWidthStr::width(encoded_char);
         if width + char_width > max_width {
+            reached_max = true;
             break;
         }
         truncated.push(c);
         width += char_width;
+    }
+
+    if reached_max && append_dots {
+        truncated.pop();
+        truncated.pop();
+        truncated.pop();
+
+        truncated.push_str("...");
     }
 
     truncated
@@ -176,6 +186,7 @@ pub async fn search_podcasts(query: String, catch_up: bool) {
     #[derive(Clone)]
     struct QueryResult {
         name: String,
+        author: String,
         url: String,
     }
 
@@ -184,11 +195,13 @@ pub async fn search_podcasts(query: String, catch_up: bool) {
 
     let mut idx = 0;
     for res in response.results.into_iter() {
-        let (Some(name), Some(url)) = (res.collection_name, res.feed_url) else {
+        let (Some(name), Some(url), Some(author)) =
+            (res.collection_name, res.feed_url, res.artist_name)
+        else {
             continue;
         };
 
-        let q = QueryResult { name, url };
+        let q = QueryResult { name, url, author };
         results.push(q);
         idx += 1;
         if idx == 9 {
@@ -203,7 +216,9 @@ pub async fn search_podcasts(query: String, catch_up: bool) {
 
     eprintln!("Enter index of podcast to add");
     for (idx, res) in results.iter().enumerate() {
-        println!("{}: {}", idx + 1, &res.name);
+        let line = format!("{}: {} - {}", idx + 1, &res.name, &res.author);
+        let line = truncate_string(&line, 79, true);
+        println!("{}", line);
     }
 
     let mut input = String::new();
@@ -217,7 +232,10 @@ pub async fn search_podcasts(query: String, catch_up: bool) {
     let mut indices = vec![];
     for input in input.split(" ") {
         let Ok(num) = input.parse::<usize>() else {
-            eprintln!("invalid input: you must enter the index of a podcast");
+            eprintln!(
+                "invalid input: {}. You must enter the index of a podcast",
+                input
+            );
             return;
         };
 

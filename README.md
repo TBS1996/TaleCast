@@ -126,6 +126,10 @@ note that not all patterns are available for each setting, for example, the down
 
 A way to systematically go through the backlog of a podacst, starting from the first episode. Perfect for podcasts where older videos are as relevant as newer ones, and especially if you're supposed to go through them chronologically. You set the date you start with `backlog_start`, and an interval with `backlog_interval`. If you set `backlog_start` and then sync, you'll download the first episode of the podcast. After `backlog_interval`` days have passed, it'll download the second episode, and so on.
 
+## how to report bugs
+
+Just use the github issues! but first, verify that you have the latest version of talecast in case I already have fixed it.
+
 
 # todo  
 

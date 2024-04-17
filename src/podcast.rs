@@ -7,6 +7,7 @@ use crate::patterns::Evaluate;
 use crate::utils;
 use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
+use futures::future;
 use futures_util::StreamExt;
 use indicatif::MultiProgress;
 use indicatif::ProgressBar;
@@ -29,6 +30,113 @@ fn init_podcast_status(mp: &MultiProgress, _name: &str) -> ProgressBar {
     //pb.set_message(name.to_owned());
     //pb.enable_steady_tick(std::time::Duration::from_millis(100));
     pb
+}
+
+pub struct Podcasts(Vec<Podcast>);
+
+impl Podcasts {
+    pub async fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
+        if configs.is_empty() {
+            eprintln!("No podcasts configured!");
+            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the {:?} file.", crate::APPNAME, &PodcastConfigs::path());
+            std::process::exit(1);
+        }
+
+        let podcast_qty = configs.len();
+        let mut podcasts = vec![];
+        eprintln!("fetching podcasts...");
+        for (name, config) in configs.0 {
+            let config = Config::new(&global_config, config);
+            let podcast = Podcast::new(name, config).await;
+            podcasts.push(podcast);
+        }
+
+        eprintln!("syncing {}/{} podcasts", podcasts.len(), podcast_qty);
+
+        podcasts.sort_by_key(|pod| pod.name.clone());
+        Self(podcasts)
+    }
+
+    pub fn set_progress_bars(mut self, multi_progress: Option<&MultiProgress>) -> Self {
+        let Some(mp) = multi_progress else {
+            return self;
+        };
+
+        for podcast in &mut self.0 {
+            let progress_bar = init_podcast_status(mp, &podcast.name);
+            podcast.progress_bar = Some(progress_bar);
+        }
+
+        self
+    }
+
+    pub fn longest_name(&self) -> usize {
+        match self
+            .0
+            .iter()
+            .map(|podcast| podcast.name.chars().count())
+            .max()
+        {
+            Some(len) => len,
+            None => {
+                eprintln!("no podcasts configured");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    pub async fn sync(self) -> Vec<PathBuf> {
+        let longest_name = self.longest_name();
+
+        let futures = self
+            .0
+            .into_iter()
+            .map(|podcast| tokio::task::spawn(async move { podcast.sync(longest_name).await }))
+            .collect::<Vec<_>>();
+
+        let episodes: Vec<PathBuf> = future::join_all(futures)
+            .await
+            .into_iter()
+            .filter_map(Result::ok)
+            .flatten()
+            .collect();
+
+        episodes
+    }
+
+    pub fn into_outlines(self) -> Vec<opml::Outline> {
+        self.0
+            .into_iter()
+            .map(|pod| opml::Outline {
+                text: pod.name().to_owned(),
+                r#type: Some("rss".to_string()),
+                xml_url: Some(pod.config().url.clone()),
+                title: Some(pod.name().to_owned()),
+                ..opml::Outline::default()
+            })
+            .collect()
+    }
+}
+
+impl From<Podcasts> for opml::OPML {
+    fn from(podcasts: Podcasts) -> opml::OPML {
+        use opml::{Body, Head, OPML};
+
+        let mut opml = OPML {
+            head: Some(Head {
+                title: Some("TaleCast Podcast Feeds".to_string()),
+                date_created: Some(chrono::Utc::now().to_rfc2822()),
+                ..Head::default()
+            }),
+            ..Default::default()
+        };
+
+        let outlines = podcasts.into_outlines();
+
+        opml.body = Body { outlines };
+
+        opml
+    }
 }
 
 #[derive(Debug)]
@@ -57,41 +165,18 @@ impl Podcast {
         path
     }
 
-    pub async fn load_all(
-        global_config: &GlobalConfig,
-        configs: PodcastConfigs,
-        mp: Option<&MultiProgress>,
-    ) -> Vec<Self> {
-        if configs.is_empty() {
-            eprintln!("No podcasts configured!");
-            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the {:?} file.", crate::APPNAME, &PodcastConfigs::path());
-            std::process::exit(1);
+    async fn new(name: String, config: Config) -> Self {
+        let xml_string = utils::download_text(&config.url).await;
+        let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
+        let xml = xml_to_value(&xml_string);
+
+        Self {
+            name,
+            channel,
+            xml,
+            config,
+            progress_bar: None,
         }
-
-        let podcast_qty = configs.len();
-        let mut podcasts = vec![];
-        eprintln!("fetching podcasts...");
-        for (name, config) in configs.0 {
-            let config = Config::new(&global_config, config);
-            let xml_string = utils::download_text(&config.url).await;
-            let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
-            let xml = xml_to_value(&xml_string);
-
-            let progress_bar = mp.map(|mp| init_podcast_status(mp, &name));
-
-            podcasts.push(Self {
-                name,
-                channel,
-                xml,
-                config,
-                progress_bar,
-            });
-        }
-
-        eprintln!("syncing {}/{} podcasts", podcasts.len(), podcast_qty);
-
-        podcasts.sort_by_key(|pod| pod.name.clone());
-        podcasts
     }
 
     pub fn get_text_attribute(&self, key: &str) -> Option<&str> {

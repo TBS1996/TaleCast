@@ -1,7 +1,8 @@
 use crate::config::GlobalConfig;
+use crate::config::PodcastConfigs;
 use clap::Parser;
-use futures::future;
 use indicatif::MultiProgress;
+use podcast::Podcasts;
 use regex::Regex;
 use std::path::PathBuf;
 
@@ -91,11 +92,10 @@ impl From<Args> for Action {
         }
 
         if let Some(path) = val.export {
-            let config = global_config();
             return Self::Export {
                 path,
                 filter,
-                config,
+                global_config: global_config(),
             };
         }
 
@@ -115,12 +115,10 @@ impl From<Args> for Action {
             return Self::CatchUp { filter };
         }
 
-        let config = global_config();
-
         Self::Sync {
             filter,
             print,
-            config,
+            global_config: global_config(),
         }
     }
 }
@@ -139,7 +137,7 @@ enum Action {
     Export {
         path: PathBuf,
         filter: Option<Regex>,
-        config: GlobalConfig,
+        global_config: GlobalConfig,
     },
     Add {
         url: String,
@@ -148,7 +146,7 @@ enum Action {
     },
     Sync {
         filter: Option<Regex>,
-        config: GlobalConfig,
+        global_config: GlobalConfig,
         print: bool,
     },
 }
@@ -166,9 +164,9 @@ async fn main() {
 
         Action::Export {
             path,
-            config,
+            global_config,
             filter,
-        } => opml::export(&path, &config, filter).await,
+        } => opml::export(&path, global_config, filter).await,
 
         Action::Add {
             name,
@@ -192,31 +190,24 @@ async fn main() {
         Action::Sync {
             filter,
             print,
-            config,
+            global_config,
         } => {
-            let mp = config
+            let progress_bars = global_config
                 .is_download_bar_enabled()
                 .then_some(MultiProgress::new());
 
-            let podcast_configs = config::PodcastConfigs::load().filter(filter);
-            let longest_name = podcast_configs.longest_name(); // Used for formatting.
-            let podcasts = podcast::Podcast::load_all(&config, podcast_configs, mp.as_ref()).await;
+            let podcast_configs = PodcastConfigs::load().filter(filter);
 
-            let futures = podcasts
-                .into_iter()
-                .map(|podcast| tokio::task::spawn(async move { podcast.sync(longest_name).await }));
-
-            let episodes: Vec<PathBuf> = future::join_all(futures)
+            let paths: Vec<PathBuf> = Podcasts::new(global_config, podcast_configs)
                 .await
-                .into_iter()
-                .filter_map(Result::ok)
-                .flatten()
-                .collect();
+                .set_progress_bars(progress_bars.as_ref())
+                .sync()
+                .await;
 
-            eprintln!("Syncing complete!\n{} episodes downloaded.", episodes.len());
+            eprintln!("Syncing complete!\n{} episodes downloaded.", paths.len());
 
             if print {
-                for path in episodes {
+                for path in paths {
                     println!("{}", path.to_str().unwrap());
                 }
             }

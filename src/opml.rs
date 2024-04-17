@@ -2,41 +2,21 @@ use crate::config;
 use crate::config::GlobalConfig;
 use crate::config::PodcastConfig;
 use crate::podcast;
-use opml::{Body, Head, Outline, OPML};
+use opml::OPML;
 use regex::Regex;
+use std::collections::HashMap;
+use std::fs;
 use std::io::Write as IoWrite;
 use std::path::Path;
 
-pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<Regex>) {
+pub async fn export(p: &Path, global_config: GlobalConfig, filter: Option<Regex>) {
     let podcast_configs = config::PodcastConfigs::load().filter(filter);
-    let podcasts = podcast::Podcast::load_all(&global_config, podcast_configs, None).await;
+    let podcasts = podcast::Podcasts::new(global_config, podcast_configs).await;
 
-    let mut opml = OPML {
-        head: Some(Head {
-            title: Some("TaleCast Podcast Feeds".to_string()),
-            date_created: Some(chrono::Utc::now().to_rfc2822()),
-            ..Head::default()
-        }),
-        ..Default::default()
-    };
-
-    let mut outlines = Vec::new();
-
-    for pod in podcasts.iter() {
-        outlines.push(Outline {
-            text: pod.name().to_owned(),
-            r#type: Some("rss".to_string()),
-            xml_url: Some(pod.config().url.clone()),
-            title: Some(pod.name().to_owned()),
-            ..Outline::default()
-        });
-    }
-
-    opml.body = Body { outlines };
-
+    let opml = OPML::from(podcasts);
     let xml_string = opml.to_string().unwrap();
 
-    std::fs::OpenOptions::new()
+    fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
@@ -45,8 +25,6 @@ pub async fn export(p: &Path, global_config: &GlobalConfig, filter: Option<Regex
         .write_all(xml_string.as_bytes())
         .unwrap();
 }
-
-use std::collections::HashMap;
 
 pub fn import(p: &Path, catch_up: bool) {
     let opml_string = std::fs::read_to_string(p).unwrap();

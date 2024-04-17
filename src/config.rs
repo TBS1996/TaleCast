@@ -432,16 +432,6 @@ impl PodcastConfigs {
         PodcastConfigs(map)
     }
 
-    pub fn longest_name(&self) -> usize {
-        match self.0.iter().map(|(name, _)| name.chars().count()).max() {
-            Some(len) => len,
-            None => {
-                eprintln!("no podcasts configured");
-                std::process::exit(1);
-            }
-        }
-    }
-
     pub fn filter(self, filter: Option<Regex>) -> Self {
         let inner = self
             .0
@@ -536,6 +526,7 @@ impl PodcastConfigs {
     }
 }
 
+/// The configuration of a specific podcast.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct PodcastConfig {

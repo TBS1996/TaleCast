@@ -110,15 +110,19 @@ impl Config {
             podcast_config.backlog_interval,
         ) {
             (None, None) => DownloadMode::Standard {
-                max_days: podcast_config
+                max_time: podcast_config
                     .max_days
-                    .into_val(global_config.max_days.as_ref()),
+                    .into_val(global_config.max_days.as_ref())
+                    .map(|days| Unix::from_secs(days as u64 * 86400)),
                 max_episodes: podcast_config
                     .max_episodes
                     .into_val(global_config.max_episodes.as_ref()),
-                earliest_date: podcast_config
-                    .earliest_date
-                    .into_val(global_config.earliest_date.as_ref()),
+                earliest_date: {
+                    podcast_config
+                        .earliest_date
+                        .into_val(global_config.earliest_date.as_ref())
+                        .map(|date| utils::date_str_to_unix(&date))
+                },
             },
             (Some(_), None) => {
                 eprintln!("missing backlog_interval");
@@ -152,7 +156,7 @@ impl Config {
 
                 DownloadMode::Backlog {
                     start: std::time::Duration::from_secs(start.timestamp() as u64),
-                    interval,
+                    interval: Unix::from_secs(interval as u64 * 86400),
                 }
             }
         };
@@ -270,6 +274,18 @@ fn default_user_agent() -> String {
 }
 
 #[derive(Serialize, Default, Deserialize, Debug, PartialEq, Clone)]
+pub struct SearchSettings {
+    max_results: Option<usize>,
+    line_width: Option<usize>,
+}
+
+impl SearchSettings {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+#[derive(Serialize, Default, Deserialize, Debug, PartialEq, Clone)]
 pub struct IndicatifSettings {
     enabled: Option<bool>,
     download_bar: Option<String>,
@@ -316,6 +332,8 @@ pub struct GlobalConfig {
     #[serde(default, skip_serializing_if = "IndicatifSettings::is_default")]
     style: IndicatifSettings,
     user_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "SearchSettings::is_default")]
+    search: SearchSettings,
 }
 
 impl GlobalConfig {
@@ -379,6 +397,14 @@ impl GlobalConfig {
     pub fn is_download_bar_enabled(&self) -> bool {
         self.style.enabled.unwrap_or(true)
     }
+
+    pub fn max_search_results(&self) -> usize {
+        self.search.max_results.unwrap_or(9)
+    }
+
+    pub fn max_line_width(&self) -> usize {
+        self.search.line_width.unwrap_or(79)
+    }
 }
 
 impl Default for GlobalConfig {
@@ -394,6 +420,7 @@ impl Default for GlobalConfig {
             download_hook: None,
             tracker_path: None,
             style: Default::default(),
+            search: Default::default(),
             user_agent: None,
         }
     }
@@ -402,13 +429,13 @@ impl Default for GlobalConfig {
 #[derive(Debug, Clone)]
 pub enum DownloadMode {
     Standard {
-        max_days: Option<i64>,
-        earliest_date: Option<String>,
+        max_time: Option<Unix>,
+        earliest_date: Option<Unix>,
         max_episodes: Option<i64>,
     },
     Backlog {
         start: Unix,
-        interval: i64,
+        interval: Unix,
     },
 }
 
@@ -575,7 +602,7 @@ impl PodcastConfig {
         use chrono::DateTime;
 
         let unix = utils::current_unix();
-        let current_date = DateTime::from_timestamp(unix, 0)
+        let current_date = DateTime::from_timestamp(unix.as_secs() as i64, 0)
             .unwrap()
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();

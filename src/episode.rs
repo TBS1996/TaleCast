@@ -1,12 +1,14 @@
+use crate::utils;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time;
 
 #[derive(Debug, Clone)]
 pub struct Episode<'a> {
     pub title: &'a str,
     pub url: &'a str,
     pub guid: &'a str,
-    pub published: i64,
+    pub published: time::Duration,
     pub index: usize,
     pub inner: &'a rss::Item,
     pub raw: &'a serde_json::Map<String, serde_json::Value>,
@@ -22,9 +24,7 @@ impl<'a> Episode<'a> {
             title: item.title.as_ref().unwrap(),
             url: item.enclosure().unwrap().url(),
             guid: item.guid().unwrap().value(),
-            published: dateparser::parse(item.pub_date().unwrap())
-                .unwrap()
-                .timestamp(),
+            published: utils::date_str_to_unix(item.pub_date().unwrap()),
             index,
             inner: item,
             raw,

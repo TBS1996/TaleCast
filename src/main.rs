@@ -91,7 +91,11 @@ impl From<Args> for Action {
 
         if let Some(query) = val.search {
             let query = query.join(" ");
-            return Self::Search { query, catch_up };
+            return Self::Search {
+                query,
+                catch_up,
+                global_config: global_config(),
+            };
         }
 
         if let Some(path) = val.import {
@@ -154,6 +158,7 @@ enum Action {
     Search {
         query: String,
         catch_up: bool,
+        global_config: GlobalConfig,
     },
     Sync {
         filter: Option<Regex>,
@@ -173,7 +178,11 @@ async fn main() {
 
         Action::CatchUp { filter } => config::PodcastConfigs::catch_up(filter),
 
-        Action::Search { query, catch_up } => utils::search_podcasts(query, catch_up).await,
+        Action::Search {
+            global_config,
+            query,
+            catch_up,
+        } => utils::search_podcasts(&global_config, query, catch_up).await,
 
         Action::Export {
             path,

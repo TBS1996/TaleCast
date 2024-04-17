@@ -233,36 +233,27 @@ impl Podcast {
 
         match &self.config.mode {
             DownloadMode::Backlog { start, interval } => {
-                let days_passed = (utils::current_unix() - start.as_secs() as i64) / 86400;
-                let current_backlog_index = days_passed / interval;
-
-                current_backlog_index >= episode.index as i64
+                let time_passed = utils::current_unix() - *start;
+                let intervals_passed = time_passed.as_secs() / interval.as_secs();
+                intervals_passed >= episode.index as u64
             }
 
             DownloadMode::Standard {
-                max_days,
+                max_time,
                 max_episodes,
                 earliest_date,
             } => {
-                let max_days_exceeded = || {
-                    max_days.is_some_and(|max_days| {
-                        (utils::current_unix() - episode.published) > max_days as i64 * 86400
-                    })
-                };
+                let max_time_exceeded = max_time.map_or(false, |max_time| {
+                    (utils::current_unix() - episode.published) > max_time
+                });
 
-                let max_episodes_exceeded = || {
-                    max_episodes.is_some_and(|max_episodes| {
-                        (latest_episode - max_episodes as usize) > episode.index
-                    })
-                };
+                let max_episodes_exceeded = max_episodes.map_or(false, |max_episodes| {
+                    (latest_episode - max_episodes as usize) > episode.index
+                });
 
-                let episode_too_old = || {
-                    earliest_date.as_ref().is_some_and(|date| {
-                        dateparser::parse(date).unwrap().timestamp() > episode.published
-                    })
-                };
+                let episode_too_old = earliest_date.map_or(false, |date| date > episode.published);
 
-                !max_days_exceeded() && !max_episodes_exceeded() && !episode_too_old()
+                !max_time_exceeded && !max_episodes_exceeded && !episode_too_old
             }
         }
     }
@@ -570,7 +561,7 @@ impl DownloadedEpisodes {
             file,
             "{} {} \"{}\"",
             id,
-            utils::current_unix(),
+            utils::current_unix().as_secs(),
             episode.as_ref().title
         )
         .unwrap();

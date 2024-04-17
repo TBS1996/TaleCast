@@ -12,6 +12,7 @@ use std::io::Cursor;
 use std::io::Write as IOWrite;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time;
 
 pub type Unix = std::time::Duration;
 
@@ -43,8 +44,9 @@ pub fn config_dir() -> PathBuf {
     path
 }
 
-pub fn current_unix() -> i64 {
-    chrono::Utc::now().timestamp()
+pub fn current_unix() -> Unix {
+    let secs = chrono::Utc::now().timestamp() as u64;
+    Unix::from_secs(secs)
 }
 
 pub fn default_download_path() -> PathBuf {
@@ -182,7 +184,7 @@ pub fn edit_file(path: &Path) {
         .unwrap();
 }
 
-pub async fn search_podcasts(query: String, catch_up: bool) {
+pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch_up: bool) {
     #[derive(Clone)]
     struct QueryResult {
         name: String,
@@ -204,7 +206,7 @@ pub async fn search_podcasts(query: String, catch_up: bool) {
         let q = QueryResult { name, url, author };
         results.push(q);
         idx += 1;
-        if idx == 9 {
+        if idx == config.max_search_results() {
             break;
         }
     }
@@ -217,7 +219,7 @@ pub async fn search_podcasts(query: String, catch_up: bool) {
     eprintln!("Enter index of podcast to add");
     for (idx, res) in results.iter().enumerate() {
         let line = format!("{}: {} - {}", idx + 1, &res.name, &res.author);
-        let line = truncate_string(&line, 79, true);
+        let line = truncate_string(&line, config.max_line_width(), true);
         println!("{}", line);
     }
 
@@ -269,6 +271,11 @@ pub async fn search_podcasts(query: String, catch_up: bool) {
         let filter = Regex::new(&regex).unwrap();
         config::PodcastConfigs::catch_up(Some(filter));
     }
+}
+
+pub fn date_str_to_unix(date: &str) -> time::Duration {
+    let secs = dateparser::parse(date).unwrap().timestamp();
+    time::Duration::from_secs(secs as u64)
 }
 
 #[cfg(test)]

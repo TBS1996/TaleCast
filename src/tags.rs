@@ -88,7 +88,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.year().is_none() {
-        let year = chrono::DateTime::from_timestamp(episode.published, 0)
+        let year = chrono::DateTime::from_timestamp(episode.published.as_secs() as i64, 0)
             .unwrap()
             .year();
         tags.set_year(year);
@@ -128,7 +128,9 @@ pub async fn set_mp3_tags<'a>(
     if tags.date_released().is_none() {
         use chrono::TimeZone;
         use chrono::Timelike;
-        let datetime = chrono::Utc.timestamp_opt(episode.published, 0).unwrap();
+        let datetime = chrono::Utc
+            .timestamp_opt(episode.published.as_secs() as i64, 0)
+            .unwrap();
 
         let ts = id3::frame::Timestamp {
             year: datetime.year(),

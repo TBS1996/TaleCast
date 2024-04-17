@@ -196,7 +196,7 @@ impl Evaluate for DataPattern {
 
         match self.ty {
             Ty::CurrDate => {
-                let now = utils::current_unix();
+                let now = utils::current_unix().as_secs() as i64;
                 let formatting = &self.data;
                 let datetime = chrono::Utc.timestamp_opt(now, 0).unwrap();
 
@@ -210,10 +210,12 @@ impl Evaluate for DataPattern {
                 let episode = sources.episode();
                 let formatting = &self.data;
 
-                let datetime = chrono::Utc.timestamp_opt(episode.published, 0).unwrap();
+                let datetime = chrono::Utc
+                    .timestamp_opt(episode.published.as_secs() as i64, 0)
+                    .unwrap();
 
                 if formatting == "unix" {
-                    episode.published.to_string()
+                    episode.published.as_secs().to_string()
                 } else {
                     datetime.format(formatting).to_string()
                 }

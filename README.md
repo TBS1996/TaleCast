@@ -99,9 +99,6 @@ to edit the podcasts: `talecast --edit-podcasts`
 
 these files are located in `~/.config/talecast/config.toml` and `~/.config/talecast/podcasts.toml` respectively, unless your `XDG_CONFIG_HOME` environment variable is set to something else.
 
-
-## what are the config options?
-
 The way configuration works is that you can set a 'global value' that applies to all podcasts in the `config.toml` file, however, you can override them by 
 setting the same setting under a given podcast in the `podcasts.toml` file. If a value is not required, you can have it configured globally but disable it on 
 specific podcasts with "$SETTING = false".

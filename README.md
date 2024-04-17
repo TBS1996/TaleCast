@@ -45,12 +45,18 @@ Talecast is available in the `Arch User Repository (AUR)` for Arch Linux users. 
 
 ## how to add podcasts?
 
-`talecast --add $PODCAST_URL $PODCAST_NAME`  
-... or modify the `podcasts.toml` file directly. 
+Some different methods:;
+
+- Search for podcasts with `talecast --search $NAME`  
+- `talecast --add $PODCAST_URL $PODCAST_NAME`  
+- Edit the `podcasts.toml` directly. See the 'how to configure' section below.
 
 for finding podcast urls, I recommend this website: https://podcastindex.org/   
 on the page of a given podcast there, click 'copy rss'. This is the url you should use! 
 
+If you add podcasts from commandline, you can combine it with the `catch-up` argument to only download podcasts released in the future.
+
+for example: `talecast -cs this american life`.
 
 ## commandline options?
 

@@ -53,17 +53,18 @@ on the page of a given podcast there, click 'copy rss'. This is the url you shou
 ## commandline options?
 
 ```
-  -i, --import <FILE>     Import podcasts from an OPML file
-  -e, --export <FILE>     Export your podcasts to an OPML file
-  -p, --print             Print the downloaded paths to stdout
-  -c, --catch-up          Catch up on podcasts. Can be combined with filter, add, and import
-  -a, --add <URL> <NAME>  Add new podcast
-  -f, --filter <FILTER>   Filter which podcasts to sync or export with a regex pattern
-      --config <FILE>     Override the path to the config file
-      --edit-config       Edit the config.toml file
-      --edit-podcasts     Edit the podcasts.toml file
-  -h, --help              Print help
-  -V, --version           Print version
+  -i, --import <FILE>      Import podcasts from an OPML file
+  -e, --export <FILE>      Export your podcasts to an OPML file
+  -p, --print              Print the downloaded paths to stdout
+  -c, --catch-up           Configure to skip episodes published prior to current time. Can be combined with filter, add, and import
+  -a, --add <URL> <NAME>   Add new podcast
+  -f, --filter <FILTER>    Filter which podcasts to sync or export with a regex pattern
+      --config <FILE>      Override the path to the config file
+      --edit-config        Edit the config.toml file
+      --edit-podcasts      Edit the podcasts.toml file
+  -s, --search <QUERY>...  Search for podcasts to add
+  -h, --help               Print help
+  -V, --version            Print version
 ```
 
 

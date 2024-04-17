@@ -64,7 +64,7 @@ struct Args {
     edit_config: bool,
     #[arg(long, help = "Edit the podcasts.toml file")]
     edit_podcasts: bool,
-    #[arg(short, long, num_args = 1.., help = "Search for podcasts to add")]
+    #[arg(short, long, value_name = "QUERY",  num_args = 1.., help = "Search for podcasts to add")]
     search: Option<Vec<String>>,
 }
 

@@ -25,13 +25,6 @@ fn xml_to_value(xml: &str) -> Value {
     xml_string_to_json(xml, &conf).unwrap()
 }
 
-fn init_podcast_status(mp: &MultiProgress, _name: &str) -> ProgressBar {
-    let pb = mp.add(ProgressBar::new_spinner());
-    //pb.set_message(name.to_owned());
-    //pb.enable_steady_tick(std::time::Duration::from_millis(100));
-    pb
-}
-
 pub struct Podcasts(Vec<Podcast>);
 
 impl Podcasts {
@@ -42,16 +35,15 @@ impl Podcasts {
             std::process::exit(1);
         }
 
-        let podcast_qty = configs.len();
         let mut podcasts = vec![];
         eprintln!("fetching podcasts...");
         for (name, config) in configs.0 {
             let config = Config::new(&global_config, config);
-            let podcast = Podcast::new(name, config).await;
+            let podcast = Podcast::new(name, config);
             podcasts.push(podcast);
         }
 
-        eprintln!("syncing {}/{} podcasts", podcasts.len(), podcast_qty);
+        let mut podcasts = futures::future::join_all(podcasts).await;
 
         podcasts.sort_by_key(|pod| pod.name.clone());
         Self(podcasts)
@@ -63,7 +55,7 @@ impl Podcasts {
         };
 
         for podcast in &mut self.0 {
-            let progress_bar = init_podcast_status(mp, &podcast.name);
+            let progress_bar = mp.add(ProgressBar::new_spinner());
             podcast.progress_bar = Some(progress_bar);
         }
 
@@ -87,6 +79,7 @@ impl Podcasts {
 
     pub async fn sync(self) -> Vec<PathBuf> {
         let longest_name = self.longest_name();
+        eprintln!("syncing {} podcasts", &self.0.len());
 
         let futures = self
             .0
@@ -340,7 +333,7 @@ impl Podcast {
     ) {
         if let Some(pb) = &self.progress_bar {
             let fitted_episode_title = {
-                let title_length = 30;
+                let title_length = self.config().title_length();
                 let padded = &format!("{:<width$}", episode.title, width = title_length);
                 utils::truncate_string(padded, title_length)
             };

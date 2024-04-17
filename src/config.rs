@@ -259,31 +259,24 @@ impl Config {
         let millis = self.style.spinner_speed.unwrap_or(100);
         time::Duration::from_millis(millis)
     }
+
+    pub fn title_length(&self) -> usize {
+        self.style.title_length.unwrap_or(30)
+    }
 }
 
 fn default_user_agent() -> String {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36".to_string()
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Default, Deserialize, Debug, PartialEq, Clone)]
 pub struct IndicatifSettings {
     enabled: Option<bool>,
     download_bar: Option<String>,
     completed: Option<String>,
     hooks: Option<String>,
     spinner_speed: Option<u64>,
-}
-
-impl Default for IndicatifSettings {
-    fn default() -> Self {
-        Self {
-            enabled: None,
-            download_bar: None,
-            completed: None,
-            hooks: None,
-            spinner_speed: None,
-        }
-    }
+    title_length: Option<usize>,
 }
 
 impl IndicatifSettings {

@@ -4,7 +4,6 @@ use clap::Parser;
 use indicatif::MultiProgress;
 use podcast::Podcasts;
 use regex::Regex;
-use std::io;
 use std::path::PathBuf;
 
 mod config;
@@ -174,6 +173,8 @@ async fn main() {
 
         Action::CatchUp { filter } => config::PodcastConfigs::catch_up(filter),
 
+        Action::Search { query, catch_up } => utils::search_podcasts(query, catch_up).await,
+
         Action::Export {
             path,
             global_config,
@@ -196,87 +197,6 @@ async fn main() {
                 }
             } else {
                 eprintln!("'{}' already exists!", name);
-            }
-        }
-
-        Action::Search { query, catch_up } => {
-            #[derive(Clone)]
-            struct QueryResult {
-                name: String,
-                url: String,
-            }
-
-            let response = podcast_search::search(&query).await.unwrap();
-            let mut results = vec![];
-
-            let mut idx = 0;
-            for res in response.results.into_iter() {
-                let (Some(name), Some(url)) = (res.collection_name, res.feed_url) else {
-                    continue;
-                };
-
-                let q = QueryResult { name, url };
-                results.push(q);
-                idx += 1;
-                if idx == 9 {
-                    break;
-                }
-            }
-
-            if results.is_empty() {
-                eprintln!("no podcasts matched your query.");
-                return;
-            }
-
-            eprintln!("Enter index of podcast to add");
-            for (idx, res) in results.iter().enumerate() {
-                println!("{}: {}", idx + 1, &res.name);
-            }
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
-            let input = input.trim();
-
-            if input.is_empty() {
-                return;
-            }
-
-            let mut indices = vec![];
-            for input in input.split(" ") {
-                let Ok(num) = input.parse::<usize>() else {
-                    eprintln!("invalid input: you must enter the index of a podcast");
-                    return;
-                };
-
-                if num > results.len() || num == 0 {
-                    eprintln!("index {} is out of bounds", num);
-                    return;
-                }
-
-                indices.push(num - 1);
-            }
-
-            let mut regex_parts = vec![];
-            for index in indices {
-                let url = results[index].url.clone();
-                let name = results[index].name.clone();
-
-                let podcast = config::PodcastConfig::new(url);
-
-                if config::PodcastConfigs::push(name.clone(), podcast) {
-                    eprintln!("'{}' added!", name);
-                    if catch_up {
-                        regex_parts.push(format!("^{}$", &name));
-                    }
-                } else {
-                    eprintln!("'{}' already exists!", name);
-                }
-            }
-
-            if catch_up && !regex_parts.is_empty() {
-                let regex = regex_parts.join("|");
-                let filter = Regex::new(&regex).unwrap();
-                config::PodcastConfigs::catch_up(Some(filter));
             }
         }
 

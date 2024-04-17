@@ -4,6 +4,7 @@ use clap::Parser;
 use indicatif::MultiProgress;
 use podcast::Podcasts;
 use regex::Regex;
+use std::io;
 use std::path::PathBuf;
 
 mod config;
@@ -64,6 +65,8 @@ struct Args {
     edit_config: bool,
     #[arg(long, help = "Edit the podcasts.toml file")]
     edit_podcasts: bool,
+    #[arg(long, help = "Search for podcasts to add")]
+    search: Option<String>,
 }
 
 impl From<Args> for Action {
@@ -85,6 +88,10 @@ impl From<Args> for Action {
         if val.edit_podcasts {
             let path = config::PodcastConfig::path();
             return Self::Edit { path };
+        }
+
+        if let Some(query) = val.search {
+            return Self::Search { query, catch_up };
         }
 
         if let Some(path) = val.import {
@@ -144,6 +151,10 @@ enum Action {
         name: String,
         catch_up: bool,
     },
+    Search {
+        query: String,
+        catch_up: bool,
+    },
     Sync {
         filter: Option<Regex>,
         global_config: GlobalConfig,
@@ -173,6 +184,76 @@ async fn main() {
             url,
             catch_up,
         } => {
+            let podcast = config::PodcastConfig::new(url);
+
+            if config::PodcastConfigs::push(name.clone(), podcast) {
+                eprintln!("'{}' added!", name);
+                if catch_up {
+                    // Matches only the added podcast.
+                    let filter = Regex::new(&format!("^{}$", &name)).unwrap();
+                    config::PodcastConfigs::catch_up(Some(filter));
+                }
+            } else {
+                eprintln!("'{}' already exists!", name);
+            }
+        }
+
+        Action::Search { query, catch_up } => {
+            #[derive(Clone)]
+            struct QueryResult {
+                name: String,
+                url: String,
+            }
+
+            let response = podcast_search::search(&query).await.unwrap();
+            let mut results = vec![];
+
+            let mut idx = 0;
+            for res in response.results.into_iter() {
+                let (Some(name), Some(url)) = (res.collection_name, res.feed_url) else {
+                    continue;
+                };
+
+                let q = QueryResult { name, url };
+                results.push(q);
+                idx += 1;
+                if idx == 9 {
+                    break;
+                }
+            }
+
+            if results.is_empty() {
+                eprintln!("no podcasts matched your query.");
+                return;
+            }
+
+            eprintln!("Enter index of podcast to add");
+            for (idx, res) in results.iter().enumerate() {
+                println!("{}: {}", idx + 1, &res.name);
+            }
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            let input = input.trim_end();
+
+            if input.is_empty() {
+                return;
+            }
+
+            let Ok(num) = input.parse::<usize>() else {
+                eprintln!("invalid input: you must enter the index of a podcast");
+                return;
+            };
+
+            if num > results.len() || num == 0 {
+                eprintln!("index {} is out of bounds", num);
+                return;
+            }
+
+            let chosen_podcast = results[num - 1].to_owned();
+            let url = chosen_podcast.url;
+            let name = chosen_podcast.name;
+
             let podcast = config::PodcastConfig::new(url);
 
             if config::PodcastConfigs::push(name.clone(), podcast) {

@@ -88,7 +88,9 @@ fn default_id_pattern() -> String {
     "{guid}".to_string()
 }
 
-/// Configuration for a specific podcast.
+/// Full configuration for a specific podcast.
+///
+/// Combines settings from [`GlobalConfig`] and [`PodcastConfig`].
 #[derive(Debug, Clone)]
 pub struct Config {
     pub url: String,

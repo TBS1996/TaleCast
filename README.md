@@ -58,7 +58,8 @@ paru -S talecast-git
 ### Other Package Managers
 
 If you have experience packaging for a package manager not listed here, it would be greatly appreciated if you add it and let me know about it!
-## how to add podcasts?
+
+## Adding podcasts
 
 Some different methods:;
 
@@ -73,7 +74,7 @@ If you add podcasts from commandline, you can combine it with the `catch-up` arg
 
 for example: `talecast -cs this american life`.
 
-## commandline options?
+## Commandline options
 
 ```
   -i, --import <FILE>      Import podcasts from an OPML file
@@ -91,7 +92,7 @@ for example: `talecast -cs this american life`.
 ```
 
 
-## how to configure it?
+## Configuration
 
 to edit the global config: `talecast --edit-config`  
 to edit the podcasts: `talecast --edit-podcasts`  
@@ -121,9 +122,9 @@ specific podcasts with "$SETTING = false".
 | backlog_start    | start date of when backlog mode calculates from              | no       | ✅           | ❌      | `None`                                        |
 | backlog_interval | how many days pass between each new episode in backlog mode  | no       | ✅           | ❌      | `None`                                        |
 
-## what are these weird curly brace patterns?
+## Pattern system 
 
-it's just a way to generate some dynamic texts. theres two types, unit patterns that take no input, and data patterns where you give it an input. here's the unit ones:
+A way to generate some dynamic texts. theres two types, unit patterns that take no input, and data patterns where you give it an input. here's the unit ones:
 
 | pattern | evalutes to..                      |
 |---------|------------------------------------|
@@ -147,7 +148,7 @@ it's just a way to generate some dynamic texts. theres two types, unit patterns 
 look at the default value of the name_pattern setting for an example of how to use them. 
 note that not all patterns are available for each setting, for example, the download_path can't use information specific to an episode.
 
-## backlog mode? what's that?
+## Backlog mode
 
 A way to systematically go through the backlog of a podacst, starting from the first episode. Perfect for podcasts where older videos are as relevant as newer ones, and especially if you're supposed to go through them chronologically. You set the date you start with `backlog_start`, and an interval with `backlog_interval`. If you set `backlog_start` and then sync, you'll download the first episode of the podcast. After `backlog_interval`` days have passed, it'll download the second episode, and so on.
 
@@ -155,7 +156,7 @@ A way to systematically go through the backlog of a podacst, starting from the f
 
 If you have any feedback just use the github issue page! If it's a bug, make sure you have the latest version in case I've already fixed it.
 
-## todo  
+## Todo  
 
 - better error handling. Atm i unwrap a lot since stopping the program when something goes wrong is generally fine for scripts and unwrap gives a lot of nice debug information.
 - integrate opml better. Currently if you import opml and then export you might lose some metadata. 

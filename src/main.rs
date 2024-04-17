@@ -65,8 +65,8 @@ struct Args {
     edit_config: bool,
     #[arg(long, help = "Edit the podcasts.toml file")]
     edit_podcasts: bool,
-    #[arg(long, help = "Search for podcasts to add")]
-    search: Option<String>,
+    #[arg(short, long, num_args = 1.., help = "Search for podcasts to add")]
+    search: Option<Vec<String>>,
 }
 
 impl From<Args> for Action {
@@ -91,6 +91,7 @@ impl From<Args> for Action {
         }
 
         if let Some(query) = val.search {
+            let query = query.join(" ");
             return Self::Search { query, catch_up };
         }
 
@@ -234,37 +235,48 @@ async fn main() {
 
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
-            let input = input.trim_end();
+            let input = input.trim();
 
             if input.is_empty() {
                 return;
             }
 
-            let Ok(num) = input.parse::<usize>() else {
-                eprintln!("invalid input: you must enter the index of a podcast");
-                return;
-            };
+            let mut indices = vec![];
+            for input in input.split(" ") {
+                let Ok(num) = input.parse::<usize>() else {
+                    eprintln!("invalid input: you must enter the index of a podcast");
+                    return;
+                };
 
-            if num > results.len() || num == 0 {
-                eprintln!("index {} is out of bounds", num);
-                return;
+                if num > results.len() || num == 0 {
+                    eprintln!("index {} is out of bounds", num);
+                    return;
+                }
+
+                indices.push(num - 1);
             }
 
-            let chosen_podcast = results[num - 1].to_owned();
-            let url = chosen_podcast.url;
-            let name = chosen_podcast.name;
+            let mut regex_parts = vec![];
+            for index in indices {
+                let url = results[index].url.clone();
+                let name = results[index].name.clone();
 
-            let podcast = config::PodcastConfig::new(url);
+                let podcast = config::PodcastConfig::new(url);
 
-            if config::PodcastConfigs::push(name.clone(), podcast) {
-                eprintln!("'{}' added!", name);
-                if catch_up {
-                    // Matches only the added podcast.
-                    let filter = Regex::new(&format!("^{}$", &name)).unwrap();
-                    config::PodcastConfigs::catch_up(Some(filter));
+                if config::PodcastConfigs::push(name.clone(), podcast) {
+                    eprintln!("'{}' added!", name);
+                    if catch_up {
+                        regex_parts.push(format!("^{}$", &name));
+                    }
+                } else {
+                    eprintln!("'{}' already exists!", name);
                 }
-            } else {
-                eprintln!("'{}' already exists!", name);
+            }
+
+            if catch_up && !regex_parts.is_empty() {
+                let regex = regex_parts.join("|");
+                let filter = Regex::new(&regex).unwrap();
+                config::PodcastConfigs::catch_up(Some(filter));
             }
         }
 

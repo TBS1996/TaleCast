@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::io::Write as IOWrite;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process;
 
 fn xml_to_value(xml: &str) -> Value {
     let xml = utils::remove_xml_namespaces(&xml, NAMESPACE_ALTER);
@@ -31,7 +32,16 @@ impl Podcasts {
     pub async fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
         if configs.is_empty() {
             eprintln!("No podcasts configured!");
-            eprintln!("Add podcasts with \"{} --add 'url' 'name'\" or by manually configuring the {:?} file.", crate::APPNAME, &PodcastConfigs::path());
+            eprintln!("You can add podcasts with the following methods:\n");
+            eprintln!("* \"{} --search <name of podcast>\"", crate::APPNAME);
+            eprintln!(
+                "* \"{} --add <feed url>  <name of podcast>\"",
+                crate::APPNAME
+            );
+            eprintln!(
+                "*  Manually configuring the {:?} file.",
+                &PodcastConfigs::path()
+            );
             std::process::exit(1);
         }
 
@@ -449,14 +459,38 @@ impl Podcast {
             id3::Tag::default()
         };
 
-        let datasource = DataSources::default()
+        let datasources = DataSources::default()
             .set_id3(&mp3_tags)
             .set_episode(episode.inner())
             .set_podcast(self);
 
-        let file_name = self.config().name_pattern.evaluate(datasource);
+        let file_name = self.config().name_pattern.evaluate(datasources);
+        let symlink_path = self
+            .config()
+            .symlink
+            .clone()
+            .map(|path| path.evaluate(datasources))
+            .map(PathBuf::from);
 
         episode.rename(file_name);
+
+        if let Some(symlink_path) = symlink_path {
+            let new_path = symlink_path.join(episode.file_name());
+            if episode.path() == new_path {
+                eprintln!("error: symlink points to itself: {:?}", new_path);
+                process::exit(1);
+            }
+            let _ = std::fs::create_dir_all(&symlink_path);
+            if !symlink_path.is_dir() {
+                eprintln!(
+                    "error: symlink path is not a directory: {:?}",
+                    &symlink_path
+                );
+                process::exit(1);
+            }
+
+            std::os::unix::fs::symlink(episode.path(), new_path).unwrap();
+        }
     }
 
     fn run_download_hook(

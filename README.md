@@ -31,6 +31,7 @@ If you want to sync with your phone you could consider using syncthing.
 - Downloaded paths can be printed to stdout for easy piping
 - Pretty graphics
 - Filter which episodes to sync or export with regex patterns
+- Built-in symlink support
    
 
 ## how to install?
@@ -105,6 +106,7 @@ specific podcasts with "$SETTING = false".
 | max_episodes     | only this amount of episodes from past will be downloaded    | no       | ✅           | ✅      | `None`                                        |
 | earliest_date    | episodes published before this won't be downloaded           | no       | ✅           | ✅      | `None`                                        |
 | id3_tags         | custom tags that mp3 files will be annotated with            | no       | ✅           | ✅      | `[ ]`                                         |
+| symlink          | directory where downloaded files will be symlinked to        | no       | ✅           | ✅      | `None`                                        |
 | backlog_start    | start date of when backlog mode calculates from              | no       | ✅           | ❌      | `None`                                        |
 | backlog_interval | how many days pass between each new episode in backlog mode  | no       | ✅           | ❌      | `None`                                        |
 

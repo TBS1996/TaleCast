@@ -197,13 +197,17 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
 
     let mut idx = 0;
     for res in response.results.into_iter() {
-        let (Some(name), Some(url), Some(author)) =
-            (res.collection_name, res.feed_url, res.artist_name)
-        else {
+        let (Some(name), Some(url)) = (res.collection_name, res.feed_url) else {
             continue;
         };
 
-        let q = QueryResult { name, url, author };
+        let q = QueryResult {
+            name,
+            url,
+            author: res
+                .artist_name
+                .unwrap_or_else(|| "<missing author>".to_string()),
+        };
         results.push(q);
         idx += 1;
         if idx == config.max_search_results() {

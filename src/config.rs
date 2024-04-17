@@ -101,6 +101,7 @@ pub struct Config {
     pub style: IndicatifSettings,
     pub user_agent: String,
     pub mode: DownloadMode,
+    pub symlink: Option<FullPattern>,
 }
 
 impl Config {
@@ -224,6 +225,16 @@ impl Config {
             .clone()
             .unwrap_or_else(default_user_agent);
 
+        let symlink = podcast_config
+            .symlink
+            .or(global_config.symlink.clone())
+            .map(|str| {
+                FullPattern::from_str(
+                    &str,
+                    vec![SourceType::Id3, SourceType::Podcast, SourceType::Episode],
+                )
+            });
+
         Self {
             url,
             name_pattern,
@@ -235,6 +246,7 @@ impl Config {
             tracker_path,
             style,
             user_agent,
+            symlink,
         }
     }
 
@@ -274,6 +286,7 @@ fn default_user_agent() -> String {
 }
 
 #[derive(Serialize, Default, Deserialize, Debug, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct SearchSettings {
     max_results: Option<usize>,
     line_width: Option<usize>,
@@ -286,6 +299,7 @@ impl SearchSettings {
 }
 
 #[derive(Serialize, Default, Deserialize, Debug, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct IndicatifSettings {
     enabled: Option<bool>,
     download_bar: Option<String>,
@@ -334,6 +348,7 @@ pub struct GlobalConfig {
     user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "SearchSettings::is_default")]
     search: SearchSettings,
+    symlink: Option<String>,
 }
 
 impl GlobalConfig {
@@ -421,6 +436,7 @@ impl Default for GlobalConfig {
             tracker_path: None,
             style: Default::default(),
             search: Default::default(),
+            symlink: None,
             user_agent: None,
         }
     }
@@ -564,6 +580,7 @@ pub struct PodcastConfig {
     earliest_date: ConfigOption<String>,
     download_hook: ConfigOption<PathBuf>,
     tracker_path: ConfigOption<String>,
+    symlink: Option<String>,
 }
 
 impl PodcastConfig {
@@ -581,6 +598,7 @@ impl PodcastConfig {
             earliest_date: Default::default(),
             download_hook: Default::default(),
             tracker_path: Default::default(),
+            symlink: Default::default(),
         }
     }
 

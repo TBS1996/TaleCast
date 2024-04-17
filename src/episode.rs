@@ -54,6 +54,10 @@ impl<'a> DownloadedEpisode<'a> {
         &self.path
     }
 
+    pub fn file_name(&self) -> &str {
+        self.path.file_name().unwrap().to_str().unwrap()
+    }
+
     pub fn rename(&mut self, new_name: String) {
         let new_name = sanitize_filename::sanitize(&new_name);
 

@@ -179,16 +179,8 @@ pub fn handle_response(response: Result<reqwest::Response, reqwest::Error>) -> r
     }
 }
 
-pub async fn download_text(url: &str) -> String {
-    let response = reqwest::Client::new()
-        .get(url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
-        )
-        .send()
-        .await;
-
+pub async fn download_text(client: &reqwest::Client, url: &str) -> String {
+    let response = client.get(url).send().await;
     let response = handle_response(response);
 
     match response.text().await {
@@ -201,9 +193,14 @@ pub async fn download_text(url: &str) -> String {
 }
 
 pub fn edit_file(path: &Path) {
+    if !path.exists() {
+        eprintln!("error: path does not exist: {:?}", path);
+    }
+
     let editor = match std::env::var("EDITOR") {
         Ok(editor) => editor,
         Err(_) => {
+            eprintln!("Unable to edit {:?}", path);
             eprintln!("Please configure your $EDITOR environment variable");
             std::process::exit(1);
         }
@@ -311,6 +308,41 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
 pub fn date_str_to_unix(date: &str) -> time::Duration {
     let secs = dateparser::parse(date).unwrap().timestamp();
     time::Duration::from_secs(secs as u64)
+}
+
+pub fn get_extension_from_response(response: &reqwest::Response, url: &str) -> String {
+    let ext = match PathBuf::from(url)
+        .extension()
+        .and_then(|ext| ext.to_str().map(String::from))
+    {
+        Some(ext) => ext.to_string(),
+        None => {
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|ct| ct.to_str().ok())
+                .unwrap_or("application/octet-stream");
+
+            let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
+
+            match extensions.contains(&"mp3") {
+                true => "mp3".to_owned(),
+                false => extensions
+                    .first()
+                    .expect("extension not found.")
+                    .to_string(),
+            }
+        }
+    };
+
+    // Some urls have these arguments after the extension.
+    // feels a bit hacky.
+    // todo: find a cleaner way to extract extensions.
+    let ext = ext
+        .split_once("?")
+        .map(|(l, _)| l.to_string())
+        .unwrap_or(ext);
+    ext
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ use futures_util::StreamExt;
 use indicatif::MultiProgress;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
+use io::Seek;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -141,7 +142,7 @@ impl Podcast {
     }
 
     async fn new(name: String, config: Config, client: Arc<reqwest::Client>) -> Self {
-        let xml_string = utils::download_text(&config.url).await;
+        let xml_string = utils::download_text(&client, &config.url).await;
         let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
         let xml = xml_to_value(&xml_string);
 
@@ -335,66 +336,27 @@ impl Podcast {
     pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
         let partial_path = self.download_folder().join(episode.partial_name());
 
-        let mut downloaded: u64 = 0;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&partial_path)
+            .unwrap();
 
-        let mut file = if partial_path.exists() {
-            use io::Seek;
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .open(&partial_path)
-                .unwrap();
-            downloaded = file.seek(std::io::SeekFrom::End(0)).unwrap();
-            file
-        } else {
-            fs::File::create(&partial_path).unwrap()
-        };
+        let mut downloaded = file.seek(io::SeekFrom::End(0)).unwrap();
 
-        let mut req_builder = self.client.get(episode.url);
+        let response = self
+            .client
+            .get(episode.url)
+            .header(reqwest::header::RANGE, format!("bytes={}-", downloaded))
+            .send()
+            .await;
 
-        if downloaded > 0 {
-            let range_header_value = format!("bytes={}-", downloaded);
-            req_builder = req_builder.header(reqwest::header::RANGE, range_header_value);
-        }
+        let response = utils::handle_response(response);
 
-        let response = req_builder.send().await.unwrap();
         let total_size = response.content_length().unwrap_or(0);
+        let extension = utils::get_extension_from_response(&response, &episode.url);
 
-        let ext = match PathBuf::from(episode.url)
-            .extension()
-            .and_then(|ext| ext.to_str().map(String::from))
-        {
-            Some(ext) => ext.to_string(),
-            None => {
-                let content_type = response
-                    .headers()
-                    .get(reqwest::header::CONTENT_TYPE)
-                    .and_then(|ct| ct.to_str().ok())
-                    .unwrap_or("application/octet-stream");
-
-                let extensions = mime_guess::get_mime_extensions_str(&content_type).unwrap();
-
-                match extensions.contains(&"mp3") {
-                    true => "mp3".to_owned(),
-                    false => extensions
-                        .first()
-                        .expect("extension not found.")
-                        .to_string(),
-                }
-            }
-        };
-
-        // Some urls have these arguments after the extension.
-        // feels a bit hacky.
-        // todo: find a cleaner way to extract extensions.
-        let ext = ext
-            .split_once("?")
-            .map(|(l, _)| l.to_string())
-            .unwrap_or(ext);
-
-        if let Some(pb) = &self.progress_bar {
-            pb.set_length(total_size);
-            pb.set_position(downloaded);
-        }
+        self.init_download_bar(downloaded, total_size);
 
         let mut stream = response.bytes_stream();
 
@@ -402,21 +364,31 @@ impl Podcast {
             let chunk = item.unwrap();
             file.write_all(&chunk).unwrap();
             downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
-
-            if let Some(pb) = &self.progress_bar {
-                pb.set_position(downloaded);
-            }
+            self.set_progress(downloaded);
         }
 
         let path = {
             let mut path = partial_path.clone();
-            path.set_extension(ext);
+            path.set_extension(extension);
             path
         };
 
         std::fs::rename(partial_path, &path).unwrap();
 
         DownloadedEpisode::new(episode, path)
+    }
+
+    fn init_download_bar(&self, start_point: u64, total_size: u64) {
+        if let Some(pb) = &self.progress_bar {
+            pb.set_length(total_size);
+            pb.set_position(start_point);
+        }
+    }
+
+    fn set_progress(&self, progress: u64) {
+        if let Some(pb) = &self.progress_bar {
+            pb.set_position(progress);
+        }
     }
 
     async fn normalize_episode(&self, episode: &mut DownloadedEpisode<'_>) {

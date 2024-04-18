@@ -560,6 +560,40 @@ impl PodcastConfigs {
 
         path
     }
+
+    pub fn into_outlines(self) -> Vec<opml::Outline> {
+        self.0
+            .into_iter()
+            .map(|(name, pod)| opml::Outline {
+                text: name.clone(),
+                r#type: Some("rss".to_string()),
+                xml_url: Some(pod.url.clone()),
+                title: Some(name),
+                ..opml::Outline::default()
+            })
+            .collect()
+    }
+}
+
+impl From<PodcastConfigs> for opml::OPML {
+    fn from(podcasts: PodcastConfigs) -> opml::OPML {
+        use opml::{Body, Head, OPML};
+
+        let mut opml = OPML {
+            head: Some(Head {
+                title: Some("TaleCast Podcast Feeds".to_string()),
+                date_created: Some(chrono::Utc::now().to_rfc2822()),
+                ..Head::default()
+            }),
+            ..Default::default()
+        };
+
+        let outlines = podcasts.into_outlines();
+
+        opml.body = Body { outlines };
+
+        opml
+    }
 }
 
 impl IntoIterator for PodcastConfigs {

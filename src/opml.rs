@@ -1,24 +1,14 @@
 use crate::config;
-use crate::config::GlobalConfig;
 use crate::config::PodcastConfig;
-use crate::podcast;
 use opml::OPML;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write as IoWrite;
 use std::path::Path;
-use std::sync::Arc;
 
-pub async fn export(p: &Path, global_config: GlobalConfig, filter: Option<Regex>) {
-    let client = reqwest::Client::builder()
-        .user_agent(&global_config.user_agent())
-        .build()
-        .map(Arc::new)
-        .unwrap();
-
-    let podcast_configs = config::PodcastConfigs::load().filter(filter);
-    let podcasts = podcast::Podcasts::new(global_config, podcast_configs, client).await;
+pub async fn export(p: &Path, filter: Option<Regex>) {
+    let podcasts = config::PodcastConfigs::load().filter(filter);
 
     let opml = OPML::from(podcasts);
     let xml_string = opml.to_string().unwrap();

@@ -114,11 +114,7 @@ impl From<Args> for Action {
         }
 
         if let Some(path) = args.export {
-            return Self::Export {
-                path,
-                filter,
-                global_config: global_config(),
-            };
+            return Self::Export { path, filter };
         }
 
         if !args.add.is_empty() {
@@ -162,7 +158,6 @@ enum Action {
     Export {
         path: PathBuf,
         filter: Option<Regex>,
-        global_config: GlobalConfig,
     },
     Add {
         url: String,
@@ -204,11 +199,7 @@ async fn main() {
             catch_up,
         } => utils::search_podcasts(&global_config, query, catch_up).await,
 
-        Action::Export {
-            path,
-            global_config,
-            filter,
-        } => opml::export(&path, global_config, filter).await,
+        Action::Export { path, filter } => opml::export(&path, filter).await,
 
         Action::Add {
             name,

@@ -1,6 +1,6 @@
 use crate::config::DownloadMode;
-use crate::config::IndicatifSettings;
 use crate::config::{Config, GlobalConfig, PodcastConfigs};
+use crate::display::DownloadBar;
 use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
 use crate::patterns::DataSources;
@@ -11,8 +11,6 @@ use crate::utils::NAMESPACE_ALTER;
 use futures::future;
 use futures_util::StreamExt;
 use indicatif::MultiProgress;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
 use io::Seek;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use serde_json::Value;
@@ -55,11 +53,15 @@ impl Podcasts {
             std::process::exit(1);
         }
 
+        let longest_name = configs.longest_name();
+
         let mut podcasts = vec![];
         eprintln!("fetching podcasts...");
         for (name, config) in configs.0 {
             let config = Config::new(&global_config, config);
-            let podcast = Podcast::new(name, config, Arc::clone(&client), mp);
+            let progress_bar =
+                DownloadBar::new(name.clone(), global_config.style(), mp, longest_name);
+            let podcast = Podcast::new(name, config, Arc::clone(&client), progress_bar);
             podcasts.push(podcast);
         }
 
@@ -69,29 +71,13 @@ impl Podcasts {
         Self(podcasts)
     }
 
-    pub fn longest_name(&self) -> usize {
-        match self
-            .0
-            .iter()
-            .map(|podcast| podcast.name.chars().count())
-            .max()
-        {
-            Some(len) => len,
-            None => {
-                eprintln!("no podcasts configured");
-                std::process::exit(1);
-            }
-        }
-    }
-
     pub async fn sync(self) -> Vec<PathBuf> {
-        let longest_name = self.longest_name();
         eprintln!("syncing {} podcasts", &self.0.len());
 
         let futures = self
             .0
             .into_iter()
-            .map(|podcast| tokio::task::spawn(async move { podcast.sync(longest_name).await }))
+            .map(|podcast| tokio::task::spawn(async move { podcast.sync().await }))
             .collect::<Vec<_>>();
 
         future::join_all(futures)
@@ -104,95 +90,12 @@ impl Podcasts {
 }
 
 #[derive(Debug)]
-struct DownloadBar {
-    bar: Option<ProgressBar>,
-    settings: IndicatifSettings,
-}
-
-impl DownloadBar {
-    fn new(settings: IndicatifSettings, mp: &MultiProgress) -> Self {
-        let bar = if settings.enabled.unwrap_or(true) {
-            let bar = mp.add(ProgressBar::new_spinner());
-            Some(bar)
-        } else {
-            None
-        };
-
-        Self { bar, settings }
-    }
-
-    fn show(&self) {
-        if let Some(pb) = &self.bar {
-            let template = self.settings.download_template();
-            pb.set_style(ProgressStyle::default_bar().template(&template).unwrap());
-            pb.enable_steady_tick(self.settings.spinner_speed());
-        }
-    }
-
-    fn show_download_info(
-        &self,
-        name: &str,
-        episode: &Episode,
-        index: usize,
-        longest_podcast_name: usize,
-        episode_qty: usize,
-    ) {
-        if let Some(pb) = &self.bar {
-            let fitted_episode_title = {
-                let title_length = self.settings.title_length();
-                let padded = &format!("{:<width$}", episode.title, width = title_length);
-                utils::truncate_string(padded, title_length, true)
-            };
-
-            let msg = format!(
-                "{:<podcast_width$} {}/{} {} ",
-                name,
-                index + 1,
-                episode_qty,
-                &fitted_episode_title,
-                podcast_width = longest_podcast_name + 3
-            );
-
-            pb.set_message(msg);
-            pb.set_position(0);
-        }
-    }
-
-    fn set_template(&self, style: &str) {
-        if let Some(pb) = &self.bar {
-            pb.set_style(ProgressStyle::default_bar().template(style).unwrap());
-        }
-    }
-
-    fn init_download_bar(&self, start_point: u64, total_size: u64) {
-        if let Some(pb) = &self.bar {
-            pb.set_length(total_size);
-            pb.set_position(start_point);
-        }
-    }
-
-    fn set_progress(&self, progress: u64) {
-        if let Some(pb) = &self.bar {
-            pb.set_position(progress);
-        }
-    }
-
-    fn mark_complete(&self, name: String) {
-        if let Some(pb) = &self.bar {
-            let template = self.settings.completion_template();
-            self.set_template(&template);
-            pb.finish_with_message(name);
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct Podcast {
     name: String, // The configured name in `podcasts.toml`.
     channel: rss::Channel,
     xml: serde_json::Value,
     config: Config,
-    progress_bar: DownloadBar,
+    ui: DownloadBar,
     client: Arc<reqwest::Client>,
 }
 
@@ -217,7 +120,7 @@ impl Podcast {
         name: String,
         config: Config,
         client: Arc<reqwest::Client>,
-        mp: &MultiProgress,
+        progress_bar: DownloadBar,
     ) -> Self {
         let xml_string = utils::download_text(&client, &config.url).await;
         let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
@@ -227,7 +130,7 @@ impl Podcast {
             name,
             channel,
             xml,
-            progress_bar: DownloadBar::new(config.style.clone(), mp),
+            ui: progress_bar,
             config,
             client,
         }
@@ -391,7 +294,7 @@ impl Podcast {
         let total_size = response.content_length().unwrap_or(0);
         let extension = utils::get_extension_from_response(&response, &episode.url);
 
-        self.progress_bar.init_download_bar(downloaded, total_size);
+        self.ui.init_download_bar(downloaded, total_size);
 
         let mut stream = response.bytes_stream();
 
@@ -399,7 +302,7 @@ impl Podcast {
             let chunk = item.unwrap();
             file.write_all(&chunk).unwrap();
             downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
-            self.progress_bar.set_progress(downloaded);
+            self.ui.set_progress(downloaded);
         }
 
         let path = {
@@ -413,7 +316,7 @@ impl Podcast {
         DownloadedEpisode::new(episode, path)
     }
 
-    async fn normalize_episode(&self, episode: &mut DownloadedEpisode<'_>) {
+    async fn process_episode(&self, episode: &mut DownloadedEpisode<'_>) {
         let mp3_tags = if episode.path().extension().unwrap() == "mp3" {
             crate::tags::set_mp3_tags(&self.channel, episode, &self.config.id3_tags).await
         } else {
@@ -471,8 +374,8 @@ impl Podcast {
         Some(handle)
     }
 
-    pub async fn sync(&self, longest_podcast_name: usize) -> Vec<PathBuf> {
-        self.progress_bar.show();
+    pub async fn sync(&self) -> Vec<PathBuf> {
+        self.ui.init();
 
         let episodes = self.pending_episodes();
         let episode_qty = episodes.len();
@@ -481,27 +384,20 @@ impl Podcast {
         let mut hook_handles = vec![];
 
         for (index, episode) in episodes.into_iter().enumerate() {
-            self.progress_bar.show_download_info(
-                &self.name,
-                &episode,
-                index,
-                longest_podcast_name,
-                episode_qty,
-            );
+            self.ui.begin_download(&episode, index, episode_qty);
             let mut downloaded_episode = self.download_episode(episode).await;
-            self.normalize_episode(&mut downloaded_episode).await;
+            self.process_episode(&mut downloaded_episode).await;
             hook_handles.extend(self.run_download_hook(&downloaded_episode));
             self.mark_downloaded(&downloaded_episode);
             downloaded.push(downloaded_episode);
         }
 
         if !hook_handles.is_empty() {
-            let template = self.progress_bar.settings.hook_template();
-            self.progress_bar.set_template(&template);
+            self.ui.hook_status();
             futures::future::join_all(hook_handles).await;
         }
 
-        self.progress_bar.mark_complete(self.name.clone());
+        self.ui.complete();
         downloaded
             .into_iter()
             .map(|episode| episode.path().to_owned())

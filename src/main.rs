@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 mod config;
+mod display;
 mod episode;
 mod opml;
 mod patterns;

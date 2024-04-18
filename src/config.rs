@@ -10,6 +10,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 use std::time;
 
 /// Represents a [`PodcastConfig`] value that is either enabled, disabled,
@@ -100,7 +101,6 @@ pub struct Config {
     pub tracker_path: FullPattern,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
-    pub style: IndicatifSettings,
     pub mode: DownloadMode,
     pub symlink: Option<FullPattern>,
 }
@@ -220,7 +220,6 @@ impl Config {
         );
 
         let url = podcast_config.url;
-        let style = global_config.style.clone();
 
         let symlink = podcast_config
             .symlink
@@ -241,7 +240,6 @@ impl Config {
             download_hook,
             download_path,
             tracker_path,
-            style,
             symlink,
         }
     }
@@ -318,6 +316,10 @@ impl IndicatifSettings {
     pub fn title_length(&self) -> usize {
         self.title_length.unwrap_or(30)
     }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -337,7 +339,7 @@ pub struct GlobalConfig {
     download_hook: Option<PathBuf>,
     tracker_path: Option<String>,
     #[serde(default, skip_serializing_if = "IndicatifSettings::is_default")]
-    style: IndicatifSettings,
+    style: std::sync::Arc<IndicatifSettings>,
     user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "SearchSettings::is_default")]
     search: SearchSettings,
@@ -363,6 +365,10 @@ impl GlobalConfig {
 
         config.save();
         config
+    }
+
+    pub fn style(&self) -> Arc<IndicatifSettings> {
+        Arc::clone(&self.style)
     }
 
     /// Serializes the config to the default path.
@@ -472,6 +478,16 @@ impl PodcastConfigs {
             .collect();
 
         Self(inner)
+    }
+
+    pub fn longest_name(&self) -> usize {
+        match self.0.iter().map(|(name, _)| name.chars().count()).max() {
+            Some(len) => len,
+            None => {
+                eprintln!("no podcasts configured");
+                std::process::exit(1);
+            }
+        }
     }
 
     /// All podcasts matching the regex will only download upcoming episodes.

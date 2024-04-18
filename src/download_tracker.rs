@@ -37,6 +37,11 @@ impl DownloadedEpisodes {
     pub fn append(path: &Path, id: &str, episode: &DownloadedEpisode) {
         use std::io::Write;
 
+        if path.is_dir() {
+            eprintln!("error: invalid download tracker path: {:?}", path);
+            eprintln!("download tracker cannot point to a directory");
+        }
+
         if let Some(parent) = path.parent() {
             fs::create_dir_all(&parent).unwrap();
         }

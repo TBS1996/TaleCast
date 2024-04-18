@@ -55,18 +55,6 @@ enum Segment {
     Pattern(Pattern),
 }
 
-#[derive(Clone, Copy)]
-pub struct DataSources<'a> {
-    podcast: &'a Podcast,
-    episode: &'a Episode<'a>,
-}
-
-impl<'a> DataSources<'a> {
-    pub fn new(podcast: &'a Podcast, episode: &'a Episode) -> Self {
-        Self { podcast, episode }
-    }
-}
-
 #[derive(Debug, Clone)]
 enum Pattern {
     Unit(UnitPattern),
@@ -109,7 +97,7 @@ impl DataPattern {
 }
 
 impl Evaluate for DataPattern {
-    fn evaluate(&self, sources: DataSources<'_>) -> String {
+    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String {
         use chrono::TimeZone;
         use DataPatternType as Ty;
         let null = "<value not found>";
@@ -127,7 +115,6 @@ impl Evaluate for DataPattern {
                 }
             }
             Ty::PubDate => {
-                let episode = sources.episode;
                 let formatting = &self.data;
 
                 let datetime = chrono::Utc
@@ -141,18 +128,16 @@ impl Evaluate for DataPattern {
                 }
             }
             Ty::RssEpisode => {
-                let episode = sources.episode;
                 let key = &self.data;
 
                 let key = key.replace(":", utils::NAMESPACE_ALTER);
                 episode.get_text_value(&key).unwrap_or(null).to_string()
             }
             Ty::RssChannel => {
-                let channel = sources.podcast;
                 let key = &self.data;
 
                 let key = key.replace(":", utils::NAMESPACE_ALTER);
-                channel.get_text_attribute(&key).unwrap_or(null).to_string()
+                podcast.get_text_attribute(&key).unwrap_or(null).to_string()
             }
         }
     }
@@ -205,11 +190,11 @@ impl UnitPattern {
 }
 
 impl Evaluate for UnitPattern {
-    fn evaluate(&self, sources: DataSources<'_>) -> String {
+    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String {
         match self {
-            Self::Guid => sources.episode.guid.to_string(),
-            Self::Url => sources.episode.url.to_string(),
-            Self::PodName => sources.podcast.name().to_string(),
+            Self::Guid => episode.guid.to_string(),
+            Self::Url => episode.url.to_string(),
+            Self::PodName => podcast.name().to_string(),
             Self::AppName => crate::APPNAME.to_string(),
             Self::Home => home(),
         }
@@ -226,18 +211,18 @@ fn home() -> String {
 }
 
 pub trait Evaluate {
-    fn evaluate(&self, sources: DataSources<'_>) -> String;
+    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String;
 }
 
 impl Evaluate for FullPattern {
-    fn evaluate(&self, sources: DataSources<'_>) -> String {
+    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String {
         let mut output = String::new();
 
         for segment in &self.0 {
             let text = match segment {
                 Segment::Text(text) => text.clone(),
-                Segment::Pattern(Pattern::Unit(pattern)) => pattern.evaluate(sources),
-                Segment::Pattern(Pattern::Data(pattern)) => pattern.evaluate(sources),
+                Segment::Pattern(Pattern::Unit(pattern)) => pattern.evaluate(podcast, episode),
+                Segment::Pattern(Pattern::Data(pattern)) => pattern.evaluate(podcast, episode),
             };
             output.push_str(&text);
         }

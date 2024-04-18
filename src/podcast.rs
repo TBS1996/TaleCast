@@ -4,7 +4,6 @@ use crate::display::DownloadBar;
 use crate::download_tracker::DownloadedEpisodes;
 use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
-use crate::patterns::DataSources;
 use crate::patterns::Evaluate;
 use crate::tags;
 use crate::utils;
@@ -132,8 +131,7 @@ impl Podcast {
     }
 
     fn download_path(&self, episode: &Episode<'_>) -> PathBuf {
-        let data_sources = self.as_datasource(episode);
-        let evaluated = self.config.download_path.evaluate(data_sources);
+        let evaluated = self.config.download_path.evaluate(self, episode);
         let path = PathBuf::from(evaluated);
         fs::create_dir_all(&path).unwrap();
         path.join(episode.partial_name())
@@ -252,17 +250,14 @@ impl Podcast {
     }
 
     fn get_id(&self, episode: &Episode) -> String {
-        let data_sources = self.as_datasource(episode);
-
         self.config
             .id_pattern
-            .evaluate(data_sources)
+            .evaluate(self, episode)
             .replace(" ", "_")
     }
 
     fn tracker_path(&self, episode: &Episode) -> PathBuf {
-        let source = self.as_datasource(episode);
-        let path = self.config().tracker_path.evaluate(source);
+        let path = self.config().tracker_path.evaluate(self, episode);
         PathBuf::from(&path)
     }
 
@@ -335,23 +330,17 @@ impl Podcast {
         DownloadedEpisode::new(episode, path)
     }
 
-    fn as_datasource<'a>(&'a self, episode: &'a Episode<'a>) -> DataSources<'a> {
-        DataSources::new(self, episode)
-    }
-
     async fn process_episode(&self, episode: &mut DownloadedEpisode<'_>) {
         if episode.path().extension().unwrap() == "mp3" {
             tags::set_mp3_tags(&self.channel, episode, &self.config.id3_tags).await;
         };
 
-        let datasources = self.as_datasource(episode.inner());
-
-        let file_name = self.config().name_pattern.evaluate(datasources);
+        let file_name = self.config().name_pattern.evaluate(self, episode.inner());
         let symlink_path = self
             .config()
             .symlink
             .clone()
-            .map(|path| path.evaluate(datasources))
+            .map(|path| path.evaluate(self, episode.inner()))
             .map(PathBuf::from);
 
         episode.rename(file_name);

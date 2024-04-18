@@ -15,10 +15,13 @@ use indicatif::ProgressStyle;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fs;
+use std::io;
 use std::io::Write as IOWrite;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
+use std::sync::Arc;
 
 fn xml_to_value(xml: &str) -> Value {
     let xml = utils::remove_xml_namespaces(&xml, NAMESPACE_ALTER);
@@ -29,7 +32,11 @@ fn xml_to_value(xml: &str) -> Value {
 pub struct Podcasts(Vec<Podcast>);
 
 impl Podcasts {
-    pub async fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
+    pub async fn new(
+        global_config: GlobalConfig,
+        configs: PodcastConfigs,
+        client: Arc<reqwest::Client>,
+    ) -> Self {
         if configs.is_empty() {
             eprintln!("No podcasts configured!");
             eprintln!("You can add podcasts with the following methods:\n");
@@ -49,7 +56,7 @@ impl Podcasts {
         eprintln!("fetching podcasts...");
         for (name, config) in configs.0 {
             let config = Config::new(&global_config, config);
-            let podcast = Podcast::new(name, config);
+            let podcast = Podcast::new(name, config, Arc::clone(&client));
             podcasts.push(podcast);
         }
 
@@ -97,14 +104,12 @@ impl Podcasts {
             .map(|podcast| tokio::task::spawn(async move { podcast.sync(longest_name).await }))
             .collect::<Vec<_>>();
 
-        let episodes: Vec<PathBuf> = future::join_all(futures)
+        future::join_all(futures)
             .await
             .into_iter()
             .filter_map(Result::ok)
             .flatten()
-            .collect();
-
-        episodes
+            .collect()
     }
 
     pub fn into_outlines(self) -> Vec<opml::Outline> {
@@ -149,6 +154,7 @@ pub struct Podcast {
     xml: serde_json::Value,
     config: Config,
     progress_bar: Option<ProgressBar>,
+    client: Arc<reqwest::Client>,
 }
 
 impl Podcast {
@@ -168,7 +174,7 @@ impl Podcast {
         path
     }
 
-    async fn new(name: String, config: Config) -> Self {
+    async fn new(name: String, config: Config, client: Arc<reqwest::Client>) -> Self {
         let xml_string = utils::download_text(&config.url).await;
         let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
         let xml = xml_to_value(&xml_string);
@@ -179,13 +185,8 @@ impl Podcast {
             xml,
             config,
             progress_bar: None,
+            client,
         }
-    }
-
-    pub fn get_text_attribute(&self, key: &str) -> Option<&str> {
-        let rss = self.xml.get("rss").unwrap();
-        let channel = rss.get("channel").unwrap();
-        channel.get(key).unwrap().as_str()
     }
 
     fn episodes(&self) -> Vec<Episode<'_>> {
@@ -227,6 +228,12 @@ impl Podcast {
         }
 
         vec
+    }
+
+    pub fn get_text_attribute(&self, key: &str) -> Option<&str> {
+        let rss = self.xml.get("rss").unwrap();
+        let channel = rss.get("channel").unwrap();
+        channel.get(key)?.as_str()
     }
 
     fn should_download(
@@ -303,7 +310,7 @@ impl Podcast {
             .collect();
 
         // In backlog mode it makes more sense to download earliest episode first.
-        // in standard mode, the most recent episodes are seen as more relevant.
+        // in standard mode, the most recent episodes are more relevant.
         match self.config.mode {
             DownloadMode::Backlog { .. } => {
                 episodes.sort_by_key(|ep| ep.index);
@@ -360,16 +367,12 @@ impl Podcast {
     }
 
     pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
-        let partial_path = {
-            let file_name = sanitize_filename::sanitize(&episode.guid);
-            let file_name = format!("{}.partial", file_name);
-            self.download_folder().join(file_name)
-        };
+        let partial_path = self.download_folder().join(episode.partial_name());
 
         let mut downloaded: u64 = 0;
 
         let mut file = if partial_path.exists() {
-            use std::io::Seek;
+            use io::Seek;
             let mut file = std::fs::OpenOptions::new()
                 .write(true)
                 .open(&partial_path)
@@ -377,15 +380,10 @@ impl Podcast {
             downloaded = file.seek(std::io::SeekFrom::End(0)).unwrap();
             file
         } else {
-            std::fs::File::create(&partial_path).unwrap()
+            fs::File::create(&partial_path).unwrap()
         };
 
-        let mut req_builder = reqwest::Client::builder()
-            .user_agent(&self.config.user_agent)
-            .redirect(reqwest::redirect::Policy::default())
-            .build()
-            .unwrap()
-            .get(episode.url);
+        let mut req_builder = self.client.get(episode.url);
 
         if downloaded > 0 {
             let range_header_value = format!("bytes={}-", downloaded);
@@ -419,6 +417,9 @@ impl Podcast {
             }
         };
 
+        // Some urls have these arguments after the extension.
+        // feels a bit hacky.
+        // todo: find a cleaner way to extract extensions.
         let ext = ext
             .split_once("?")
             .map(|(l, _)| l.to_string())

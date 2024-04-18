@@ -12,6 +12,7 @@ use std::io::Cursor;
 use std::io::Write as IOWrite;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process;
 use std::time;
 
 pub type Unix = std::time::Duration;
@@ -154,19 +155,49 @@ struct BasicPodcast {
     url: String,
 }
 
+pub fn handle_response(response: Result<reqwest::Response, reqwest::Error>) -> reqwest::Response {
+    match response {
+        Ok(res) => res,
+        Err(e) => {
+            let url = e.url().unwrap().clone();
+
+            let error_message = match e {
+                e if e.is_builder() => format!("Invalid URL: {}", url),
+                e if e.is_connect() => format!(
+                    "Failed to connect. Ensure you're connected to the internet: {}",
+                    url
+                ),
+                e if e.is_timeout() => format!("Timeout reached for URL: {}", url),
+                e if e.is_status() => format!("Server error {}: {}", e.status().unwrap(), url),
+                e if e.is_redirect() => format!("Too many redirects for URL: {}", url),
+                e if e.is_decode() => format!("Failed to decode response from URL: {}", url),
+                _ => format!("An unexpected error occurred: {}", e),
+            };
+            eprintln!("{}", error_message);
+            process::exit(1);
+        }
+    }
+}
+
 pub async fn download_text(url: &str) -> String {
-    reqwest::Client::new()
+    let response = reqwest::Client::new()
         .get(url)
         .header(
             "User-Agent",
             "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
         )
         .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap()
+        .await;
+
+    let response = handle_response(response);
+
+    match response.text().await {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("failed to decode response from url: {}\nerror:{}", url, e);
+            process::exit(1);
+        }
+    }
 }
 
 pub fn edit_file(path: &Path) {

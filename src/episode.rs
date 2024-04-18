@@ -34,6 +34,12 @@ impl<'a> Episode<'a> {
     pub fn get_text_value(&self, tag: &str) -> Option<&str> {
         self.raw.get(tag).unwrap().as_str()
     }
+
+    /// Filename of episode when it's being downloaded.
+    pub fn partial_name(&self) -> String {
+        let file_name = sanitize_filename::sanitize(&self.guid);
+        format!("{}.partial", file_name)
+    }
 }
 
 pub struct DownloadedEpisode<'a> {

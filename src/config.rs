@@ -101,7 +101,6 @@ pub struct Config {
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
     pub style: IndicatifSettings,
-    pub user_agent: String,
     pub mode: DownloadMode,
     pub symlink: Option<FullPattern>,
 }
@@ -222,10 +221,6 @@ impl Config {
 
         let url = podcast_config.url;
         let style = global_config.style.clone();
-        let user_agent = global_config
-            .user_agent
-            .clone()
-            .unwrap_or_else(default_user_agent);
 
         let symlink = podcast_config
             .symlink
@@ -247,7 +242,6 @@ impl Config {
             download_path,
             tracker_path,
             style,
-            user_agent,
             symlink,
         }
     }
@@ -407,6 +401,10 @@ impl GlobalConfig {
         }
     }
 
+    pub fn user_agent(&self) -> String {
+        self.user_agent.clone().unwrap_or_else(default_user_agent)
+    }
+
     pub fn default_path() -> PathBuf {
         utils::config_dir().join("config.toml")
     }
@@ -483,7 +481,7 @@ impl PodcastConfigs {
         Self(inner)
     }
 
-    /// All podcasts matching the regex will not download episodes published earlier than current
+    /// All podcasts matching the regex will only download upcoming episodes.
     /// time. Podcasts with backlog mode ignored.
     pub fn catch_up(filter: Option<Regex>) {
         let mut podcasts = Self::load().filter(filter);
@@ -561,6 +559,24 @@ impl PodcastConfigs {
         }
 
         path
+    }
+}
+
+impl IntoIterator for PodcastConfigs {
+    type Item = (String, PodcastConfig);
+    type IntoIter = std::collections::hash_map::IntoIter<String, PodcastConfig>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a PodcastConfigs {
+    type Item = (&'a String, &'a PodcastConfig);
+    type IntoIter = std::collections::hash_map::Iter<'a, String, PodcastConfig>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 

@@ -5,6 +5,7 @@ use indicatif::MultiProgress;
 use podcast::Podcasts;
 use regex::Regex;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 mod config;
 mod episode;
@@ -237,13 +238,20 @@ async fn main() {
                 .is_download_bar_enabled()
                 .then_some(MultiProgress::new());
 
+            let client = reqwest::Client::builder()
+                .user_agent(&global_config.user_agent())
+                .build()
+                .map(Arc::new)
+                .unwrap();
+
             let podcast_configs = PodcastConfigs::load().filter(filter);
 
-            let paths: Vec<PathBuf> = Podcasts::new(global_config, podcast_configs)
-                .await
-                .set_progress_bars(progress_bars.as_ref())
-                .sync()
-                .await;
+            let paths: Vec<PathBuf> =
+                Podcasts::new(global_config, podcast_configs, Arc::clone(&client))
+                    .await
+                    .set_progress_bars(progress_bars.as_ref())
+                    .sync()
+                    .await;
 
             eprintln!("Syncing complete!\n{} episodes downloaded.", paths.len());
 

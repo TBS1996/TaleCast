@@ -1,11 +1,9 @@
 use crate::config::GlobalConfig;
 use crate::config::PodcastConfigs;
 use clap::Parser;
-use indicatif::MultiProgress;
 use podcast::Podcasts;
 use regex::Regex;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 mod config;
 mod display;
@@ -226,23 +224,14 @@ async fn main() {
             print,
             global_config,
         } => {
-            let mp = MultiProgress::new();
-
-            let client = reqwest::Client::builder()
-                .user_agent(&global_config.user_agent())
-                .build()
-                .map(Arc::new)
-                .unwrap();
-
             let podcast_configs = PodcastConfigs::load().filter(filter);
+            let paths: Vec<PathBuf> = Podcasts::new(global_config, podcast_configs)
+                .await
+                .sync()
+                .await;
 
-            let paths: Vec<PathBuf> =
-                Podcasts::new(global_config, podcast_configs, Arc::clone(&client), &mp)
-                    .await
-                    .sync()
-                    .await;
-
-            eprintln!("Syncing complete!\n{} episodes downloaded.", paths.len());
+            eprintln!("Syncing complete!");
+            eprintln!("{} episodes downloaded.", paths.len());
 
             if print {
                 for path in paths {

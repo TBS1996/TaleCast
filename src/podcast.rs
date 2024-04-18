@@ -29,15 +29,13 @@ fn xml_to_value(xml: &str) -> Value {
     xml_string_to_json(xml, &conf).unwrap()
 }
 
-pub struct Podcasts(Vec<Podcast>);
+pub struct Podcasts {
+    _mp: MultiProgress,
+    podcasts: Vec<Podcast>,
+}
 
 impl Podcasts {
-    pub async fn new(
-        global_config: GlobalConfig,
-        configs: PodcastConfigs,
-        client: Arc<reqwest::Client>,
-        mp: &MultiProgress,
-    ) -> Self {
+    pub async fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
         if configs.is_empty() {
             eprintln!("No podcasts configured!");
             eprintln!("You can add podcasts with the following methods:\n");
@@ -53,6 +51,14 @@ impl Podcasts {
             std::process::exit(1);
         }
 
+        let mp = MultiProgress::new();
+
+        let client = reqwest::Client::builder()
+            .user_agent(&global_config.user_agent())
+            .build()
+            .map(Arc::new)
+            .unwrap();
+
         let longest_name = configs.longest_name();
 
         let mut podcasts = vec![];
@@ -60,22 +66,24 @@ impl Podcasts {
         for (name, config) in configs.0 {
             let config = Config::new(&global_config, config);
             let progress_bar =
-                DownloadBar::new(name.clone(), global_config.style(), mp, longest_name);
-            let podcast = Podcast::new(name, config, Arc::clone(&client), progress_bar);
+                DownloadBar::new(name.clone(), global_config.style(), &mp, longest_name);
+            let client = Arc::clone(&client);
+            let podcast = Podcast::new(name, config, client, progress_bar);
             podcasts.push(podcast);
         }
 
         let mut podcasts = futures::future::join_all(podcasts).await;
 
         podcasts.sort_by_key(|pod| pod.name.clone());
-        Self(podcasts)
+
+        Self { podcasts, _mp: mp }
     }
 
     pub async fn sync(self) -> Vec<PathBuf> {
-        eprintln!("syncing {} podcasts", &self.0.len());
+        eprintln!("syncing {} podcasts", &self.podcasts.len());
 
         let futures = self
-            .0
+            .podcasts
             .into_iter()
             .map(|podcast| tokio::task::spawn(async move { podcast.sync().await }))
             .collect::<Vec<_>>();

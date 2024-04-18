@@ -225,9 +225,7 @@ async fn main() {
             print,
             global_config,
         } => {
-            let progress_bars = global_config
-                .is_download_bar_enabled()
-                .then_some(MultiProgress::new());
+            let mp = MultiProgress::new();
 
             let client = reqwest::Client::builder()
                 .user_agent(&global_config.user_agent())
@@ -238,9 +236,8 @@ async fn main() {
             let podcast_configs = PodcastConfigs::load().filter(filter);
 
             let paths: Vec<PathBuf> =
-                Podcasts::new(global_config, podcast_configs, Arc::clone(&client))
+                Podcasts::new(global_config, podcast_configs, Arc::clone(&client), &mp)
                     .await
-                    .set_progress_bars(progress_bars.as_ref())
                     .sync()
                     .await;
 

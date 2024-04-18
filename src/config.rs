@@ -245,36 +245,6 @@ impl Config {
             symlink,
         }
     }
-
-    pub fn download_template(&self) -> String {
-        self.style
-            .download_bar
-            .clone()
-            .unwrap_or_else(IndicatifSettings::default_download_template)
-    }
-
-    pub fn completion_template(&self) -> String {
-        self.style
-            .completed
-            .clone()
-            .unwrap_or_else(IndicatifSettings::default_complete_template)
-    }
-
-    pub fn hook_template(&self) -> String {
-        self.style
-            .hooks
-            .clone()
-            .unwrap_or_else(IndicatifSettings::default_hooks)
-    }
-
-    pub fn spinner_speed(&self) -> time::Duration {
-        let millis = self.style.spinner_speed.unwrap_or(100);
-        time::Duration::from_millis(millis)
-    }
-
-    pub fn title_length(&self) -> usize {
-        self.style.title_length.unwrap_or(30)
-    }
 }
 
 fn default_user_agent() -> String {
@@ -297,12 +267,12 @@ impl SearchSettings {
 #[derive(Serialize, Default, Deserialize, Debug, PartialEq, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct IndicatifSettings {
-    enabled: Option<bool>,
-    download_bar: Option<String>,
-    completed: Option<String>,
-    hooks: Option<String>,
-    spinner_speed: Option<u64>,
-    title_length: Option<usize>,
+    pub enabled: Option<bool>,
+    pub download_bar: Option<String>,
+    pub completed: Option<String>,
+    pub hooks: Option<String>,
+    pub spinner_speed: Option<u64>,
+    pub title_length: Option<usize>,
 }
 
 impl IndicatifSettings {
@@ -320,6 +290,33 @@ impl IndicatifSettings {
 
     fn default_hooks() -> String {
         "{spinner:.green} finishing up download hooks...".to_string()
+    }
+
+    pub fn download_template(&self) -> String {
+        self.download_bar
+            .clone()
+            .unwrap_or_else(IndicatifSettings::default_download_template)
+    }
+
+    pub fn completion_template(&self) -> String {
+        self.completed
+            .clone()
+            .unwrap_or_else(IndicatifSettings::default_complete_template)
+    }
+
+    pub fn hook_template(&self) -> String {
+        self.hooks
+            .clone()
+            .unwrap_or_else(IndicatifSettings::default_hooks)
+    }
+
+    pub fn spinner_speed(&self) -> time::Duration {
+        let millis = self.spinner_speed.unwrap_or(100);
+        time::Duration::from_millis(millis)
+    }
+
+    pub fn title_length(&self) -> usize {
+        self.title_length.unwrap_or(30)
     }
 }
 
@@ -407,10 +404,6 @@ impl GlobalConfig {
 
     pub fn default_path() -> PathBuf {
         utils::config_dir().join("config.toml")
-    }
-
-    pub fn is_download_bar_enabled(&self) -> bool {
-        self.style.enabled.unwrap_or(true)
     }
 
     pub fn max_search_results(&self) -> usize {

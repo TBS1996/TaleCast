@@ -53,7 +53,7 @@ struct Args {
         long,
         help = "Filter which podcasts to sync or export with a regex pattern"
     )]
-    filter: Option<Regex>,
+    filter: Option<String>,
     #[arg(
         long,
         value_name = "FILE",
@@ -66,30 +66,40 @@ struct Args {
     edit_podcasts: bool,
     #[arg(short, long, value_name = "QUERY",  num_args = 1.., help = "Search for podcasts to add")]
     search: Option<Vec<String>>,
+    #[arg(long, help = "Print your podcasts to stdout")]
+    list: bool,
 }
 
 impl From<Args> for Action {
-    fn from(val: Args) -> Self {
-        let filter = val.filter;
-        let print = val.print;
-        let catch_up = val.catch_up;
+    fn from(args: Args) -> Self {
+        let filter = args.filter.map(|filter| {
+            let filter = format!("(?i){}", filter);
+            Regex::new(&filter).unwrap()
+        });
 
-        let global_config = || match val.config.as_ref() {
+        let print = args.print;
+        let catch_up = args.catch_up;
+
+        let global_config = || match args.config.as_ref() {
             Some(path) => GlobalConfig::load_from_path(path),
             None => GlobalConfig::load(),
         };
 
-        if val.edit_config {
+        if args.list {
+            return Self::List { filter };
+        }
+
+        if args.edit_config {
             let path = GlobalConfig::default_path();
             return Self::Edit { path };
         }
 
-        if val.edit_podcasts {
+        if args.edit_podcasts {
             let path = config::PodcastConfig::path();
             return Self::Edit { path };
         }
 
-        if let Some(query) = val.search {
+        if let Some(query) = args.search {
             let query = query.join(" ");
             return Self::Search {
                 query,
@@ -98,11 +108,11 @@ impl From<Args> for Action {
             };
         }
 
-        if let Some(path) = val.import {
+        if let Some(path) = args.import {
             return Self::Import { path, catch_up };
         }
 
-        if let Some(path) = val.export {
+        if let Some(path) = args.export {
             return Self::Export {
                 path,
                 filter,
@@ -110,10 +120,10 @@ impl From<Args> for Action {
             };
         }
 
-        if !val.add.is_empty() {
-            assert_eq!(val.add.len(), 2);
-            let url = val.add[0].to_string();
-            let name = val.add[1].to_string();
+        if !args.add.is_empty() {
+            assert_eq!(args.add.len(), 2);
+            let url = args.add[0].to_string();
+            let name = args.add[1].to_string();
 
             return Self::Add {
                 url,
@@ -135,6 +145,9 @@ impl From<Args> for Action {
 }
 
 enum Action {
+    List {
+        filter: Option<Regex>,
+    },
     CatchUp {
         filter: Option<Regex>,
     },
@@ -177,6 +190,12 @@ async fn main() {
         Action::Edit { path } => utils::edit_file(&path),
 
         Action::CatchUp { filter } => config::PodcastConfigs::catch_up(filter),
+
+        Action::List { filter } => {
+            for (name, _) in config::PodcastConfigs::load().filter(filter) {
+                println!("{}", name);
+            }
+        }
 
         Action::Search {
             global_config,

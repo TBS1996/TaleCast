@@ -206,14 +206,17 @@ impl Podcast {
         channel.get(key)?.as_str()
     }
 
-    fn should_download(&self, episode: &Episode, latest_episode: usize) -> bool {
+    fn is_episode_downloaded(&self, episode: &Episode) -> bool {
         let id = self.get_id(episode);
         let path = self.tracker_path(episode);
         let downloaded = DownloadedEpisodes::load(&path);
+        downloaded.contains_episode(&id)
+    }
 
-        if downloaded.contains_episode(&id) {
+    fn should_download(&self, episode: &Episode, latest_episode: usize) -> bool {
+        if self.is_episode_downloaded(episode) {
             return false;
-        }
+        };
 
         match &self.config.mode {
             DownloadMode::Backlog { start, interval } => {

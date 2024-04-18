@@ -11,7 +11,7 @@ use regex::Regex;
 pub struct FullPattern(Vec<Segment>);
 
 impl FullPattern {
-    pub fn from_str(s: &str, available_sources: Vec<SourceType>) -> Self {
+    pub fn from_str(s: &str) -> Self {
         let mut segments: Vec<Segment> = vec![];
         let mut text = String::new();
         let mut pattern = String::new();
@@ -23,16 +23,6 @@ impl FullPattern {
                 assert!(is_inside);
                 let text_pattern = std::mem::take(&mut pattern);
                 let pattern = Pattern::from_str(&text_pattern);
-                if let Some(required_source) = pattern.required_source() {
-                    if !available_sources.contains(&required_source) {
-                        eprintln!(
-                            "CONFIGURATION ERROR\ninvalid pattern: {}\n{:?} requires the \"{:?}\"-source which is not available for this configuration setting.",
-                            s, text_pattern, required_source
-                        );
-
-                        std::process::exit(1);
-                    }
-                }
                 let segment = Segment::Pattern(pattern);
                 segments.push(segment);
                 is_inside = false;
@@ -65,52 +55,15 @@ enum Segment {
     Pattern(Pattern),
 }
 
-#[derive(PartialEq, Debug)]
-pub enum SourceType {
-    Episode,
-    Podcast,
-    Id3,
-}
-
-impl SourceType {
-    pub fn all() -> Vec<Self> {
-        vec![Self::Episode, Self::Podcast, Self::Id3]
-    }
-}
-
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct DataSources<'a> {
-    id3: Option<&'a id3::Tag>,
-    episode: Option<&'a Episode<'a>>,
-    podcast: Option<&'a Podcast>,
+    podcast: &'a Podcast,
+    episode: &'a Episode<'a>,
 }
 
 impl<'a> DataSources<'a> {
-    fn id3(&self) -> &'a id3::Tag {
-        self.id3.unwrap()
-    }
-
-    fn episode(&self) -> &'a Episode<'a> {
-        self.episode.unwrap()
-    }
-
-    fn podcast(&self) -> &'a Podcast {
-        self.podcast.unwrap()
-    }
-
-    pub fn set_episode(mut self, episode: &'a Episode<'a>) -> Self {
-        self.episode = Some(episode);
-        self
-    }
-
-    pub fn set_podcast(mut self, podcast: &'a Podcast) -> Self {
-        self.podcast = Some(podcast);
-        self
-    }
-
-    pub fn set_id3(mut self, id3: &'a id3::Tag) -> Self {
-        self.id3 = Some(id3);
-        self
+    pub fn new(podcast: &'a Podcast, episode: &'a Episode) -> Self {
+        Self { podcast, episode }
     }
 }
 
@@ -129,39 +82,6 @@ impl Pattern {
         } else {
             eprintln!("invalid pattern: \"{}\"", s);
             std::process::exit(1);
-        }
-    }
-
-    fn required_source(&self) -> Option<SourceType> {
-        use DataPattern as DP;
-        use UnitPattern as UP;
-
-        match self {
-            Self::Unit(UP::Home) => None,
-            Self::Unit(UP::AppName) => None,
-            Self::Unit(UP::PodName) => Some(SourceType::Podcast),
-            Self::Unit(UP::Url) => Some(SourceType::Episode),
-            Self::Unit(UP::Guid) => Some(SourceType::Episode),
-            Self::Data(DP {
-                ty: DataPatternType::CurrDate,
-                ..
-            }) => None,
-            Self::Data(DP {
-                ty: DataPatternType::RssChannel,
-                ..
-            }) => Some(SourceType::Podcast),
-            Self::Data(DP {
-                ty: DataPatternType::RssEpisode,
-                ..
-            }) => Some(SourceType::Episode),
-            Self::Data(DP {
-                ty: DataPatternType::Id3Tag,
-                ..
-            }) => Some(SourceType::Id3),
-            Self::Data(DP {
-                ty: DataPatternType::PubDate,
-                ..
-            }) => Some(SourceType::Episode),
         }
     }
 }
@@ -207,7 +127,7 @@ impl Evaluate for DataPattern {
                 }
             }
             Ty::PubDate => {
-                let episode = sources.episode();
+                let episode = sources.episode;
                 let formatting = &self.data;
 
                 let datetime = chrono::Utc
@@ -221,29 +141,18 @@ impl Evaluate for DataPattern {
                 }
             }
             Ty::RssEpisode => {
-                let episode = sources.episode();
+                let episode = sources.episode;
                 let key = &self.data;
 
                 let key = key.replace(":", utils::NAMESPACE_ALTER);
                 episode.get_text_value(&key).unwrap_or(null).to_string()
             }
             Ty::RssChannel => {
-                let channel = sources.podcast();
+                let channel = sources.podcast;
                 let key = &self.data;
 
                 let key = key.replace(":", utils::NAMESPACE_ALTER);
                 channel.get_text_attribute(&key).unwrap_or(null).to_string()
-            }
-            Ty::Id3Tag => {
-                use id3::TagLike;
-
-                let tag_key = &self.data;
-                sources
-                    .id3()
-                    .get(tag_key)
-                    .and_then(|tag| tag.content().text())
-                    .unwrap_or(null)
-                    .to_string()
             }
         }
     }
@@ -255,13 +164,11 @@ enum DataPatternType {
     RssChannel,
     PubDate,
     CurrDate,
-    Id3Tag,
 }
 
 impl DataPatternType {
     fn regex(&self) -> Regex {
         let s = match self {
-            Self::Id3Tag => "id3",
             Self::PubDate => "pubdate",
             Self::CurrDate => "currdate",
             Self::RssEpisode => "rss::episode",
@@ -300,9 +207,9 @@ impl UnitPattern {
 impl Evaluate for UnitPattern {
     fn evaluate(&self, sources: DataSources<'_>) -> String {
         match self {
-            Self::Guid => sources.episode().guid.to_string(),
-            Self::Url => sources.episode().url.to_string(),
-            Self::PodName => sources.podcast().name().to_string(),
+            Self::Guid => sources.episode.guid.to_string(),
+            Self::Url => sources.episode.url.to_string(),
+            Self::PodName => sources.podcast.name().to_string(),
             Self::AppName => crate::APPNAME.to_string(),
             Self::Home => home(),
         }

@@ -1,12 +1,13 @@
 use crate::config::DownloadMode;
 use crate::config::{Config, GlobalConfig, PodcastConfigs};
 use crate::display::DownloadBar;
+use crate::download_tracker::DownloadedEpisodes;
 use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
 use crate::patterns::DataSources;
 use crate::patterns::Evaluate;
+use crate::tags;
 use crate::utils;
-use crate::utils::Unix;
 use crate::utils::NAMESPACE_ALTER;
 use futures::future;
 use futures_util::StreamExt;
@@ -18,7 +19,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::Write as IOWrite;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -36,21 +36,6 @@ pub struct Podcasts {
 
 impl Podcasts {
     pub async fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
-        if configs.is_empty() {
-            eprintln!("No podcasts configured!");
-            eprintln!("You can add podcasts with the following methods:\n");
-            eprintln!("* \"{} --search <name of podcast>\"", crate::APPNAME);
-            eprintln!(
-                "* \"{} --add <feed url>  <name of podcast>\"",
-                crate::APPNAME
-            );
-            eprintln!(
-                "*  Manually configuring the {:?} file.",
-                &PodcastConfigs::path()
-            );
-            std::process::exit(1);
-        }
-
         let mp = MultiProgress::new();
 
         let client = reqwest::Client::builder()
@@ -116,12 +101,42 @@ impl Podcast {
         &self.config
     }
 
-    fn download_folder(&self) -> PathBuf {
-        let data_sources = DataSources::default().set_podcast(self);
+    pub async fn sync(&self) -> Vec<PathBuf> {
+        self.ui.init();
+
+        let episodes = self.pending_episodes();
+        let episode_qty = episodes.len();
+
+        let mut downloaded = vec![];
+        let mut hook_handles = vec![];
+
+        for (index, episode) in episodes.into_iter().enumerate() {
+            self.ui.begin_download(&episode, index, episode_qty);
+            let mut downloaded_episode = self.download_episode(episode).await;
+            self.process_episode(&mut downloaded_episode).await;
+            hook_handles.extend(self.run_download_hook(&downloaded_episode));
+            self.mark_downloaded(&downloaded_episode);
+            downloaded.push(downloaded_episode);
+        }
+
+        if !hook_handles.is_empty() {
+            self.ui.hook_status();
+            futures::future::join_all(hook_handles).await;
+        }
+
+        self.ui.complete();
+        downloaded
+            .into_iter()
+            .map(|episode| episode.path().to_owned())
+            .collect()
+    }
+
+    fn download_path(&self, episode: &Episode<'_>) -> PathBuf {
+        let data_sources = self.as_datasource(episode);
         let evaluated = self.config.download_path.evaluate(data_sources);
         let path = PathBuf::from(evaluated);
-        std::fs::create_dir_all(&path).unwrap();
-        path
+        fs::create_dir_all(&path).unwrap();
+        path.join(episode.partial_name())
     }
 
     async fn new(
@@ -191,15 +206,12 @@ impl Podcast {
         channel.get(key)?.as_str()
     }
 
-    fn should_download(
-        &self,
-        episode: &Episode,
-        latest_episode: usize,
-        downloaded: &DownloadedEpisodes,
-    ) -> bool {
+    fn should_download(&self, episode: &Episode, latest_episode: usize) -> bool {
         let id = self.get_id(episode);
+        let path = self.tracker_path(episode);
+        let downloaded = DownloadedEpisodes::load(&path);
 
-        if downloaded.0.contains_key(&id) {
+        if downloaded.contains_episode(&id) {
             return false;
         }
 
@@ -232,14 +244,12 @@ impl Podcast {
 
     fn mark_downloaded(&self, episode: &DownloadedEpisode) {
         let id = self.get_id(episode.inner());
-        let path = self.tracker_path();
+        let path = self.tracker_path(episode.inner());
         DownloadedEpisodes::append(&path, &id, &episode);
     }
 
     fn get_id(&self, episode: &Episode) -> String {
-        let data_sources = DataSources::default()
-            .set_podcast(self)
-            .set_episode(episode);
+        let data_sources = self.as_datasource(episode);
 
         self.config
             .id_pattern
@@ -247,8 +257,8 @@ impl Podcast {
             .replace(" ", "_")
     }
 
-    fn tracker_path(&self) -> PathBuf {
-        let source = DataSources::default().set_podcast(self);
+    fn tracker_path(&self, episode: &Episode) -> PathBuf {
+        let source = self.as_datasource(episode);
         let path = self.config().tracker_path.evaluate(source);
         PathBuf::from(&path)
     }
@@ -256,12 +266,10 @@ impl Podcast {
     fn pending_episodes(&self) -> Vec<Episode<'_>> {
         let mut episodes = self.episodes();
         let episode_qty = episodes.len();
-        let path = self.tracker_path();
-        let downloaded = DownloadedEpisodes::load(&path);
 
         episodes = episodes
             .into_iter()
-            .filter(|episode| self.should_download(episode, episode_qty, &downloaded))
+            .filter(|episode| self.should_download(episode, episode_qty))
             .collect();
 
         // In backlog mode it makes more sense to download earliest episode first.
@@ -280,7 +288,7 @@ impl Podcast {
     }
 
     pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
-        let partial_path = self.download_folder().join(episode.partial_name());
+        let partial_path = self.download_path(&episode);
 
         let mut file = fs::OpenOptions::new()
             .write(true)
@@ -324,17 +332,16 @@ impl Podcast {
         DownloadedEpisode::new(episode, path)
     }
 
+    fn as_datasource<'a>(&'a self, episode: &'a Episode<'a>) -> DataSources<'a> {
+        DataSources::new(self, episode)
+    }
+
     async fn process_episode(&self, episode: &mut DownloadedEpisode<'_>) {
-        let mp3_tags = if episode.path().extension().unwrap() == "mp3" {
-            crate::tags::set_mp3_tags(&self.channel, episode, &self.config.id3_tags).await
-        } else {
-            id3::Tag::default()
+        if episode.path().extension().unwrap() == "mp3" {
+            tags::set_mp3_tags(&self.channel, episode, &self.config.id3_tags).await;
         };
 
-        let datasources = DataSources::default()
-            .set_id3(&mp3_tags)
-            .set_episode(episode.inner())
-            .set_podcast(self);
+        let datasources = self.as_datasource(episode.inner());
 
         let file_name = self.config().name_pattern.evaluate(datasources);
         let symlink_path = self
@@ -380,87 +387,5 @@ impl Podcast {
         });
 
         Some(handle)
-    }
-
-    pub async fn sync(&self) -> Vec<PathBuf> {
-        self.ui.init();
-
-        let episodes = self.pending_episodes();
-        let episode_qty = episodes.len();
-
-        let mut downloaded = vec![];
-        let mut hook_handles = vec![];
-
-        for (index, episode) in episodes.into_iter().enumerate() {
-            self.ui.begin_download(&episode, index, episode_qty);
-            let mut downloaded_episode = self.download_episode(episode).await;
-            self.process_episode(&mut downloaded_episode).await;
-            hook_handles.extend(self.run_download_hook(&downloaded_episode));
-            self.mark_downloaded(&downloaded_episode);
-            downloaded.push(downloaded_episode);
-        }
-
-        if !hook_handles.is_empty() {
-            self.ui.hook_status();
-            futures::future::join_all(hook_handles).await;
-        }
-
-        self.ui.complete();
-        downloaded
-            .into_iter()
-            .map(|episode| episode.path().to_owned())
-            .collect()
-    }
-}
-
-/// Keeps track of which episodes have already been downloaded.
-#[derive(Debug, Default)]
-struct DownloadedEpisodes(HashMap<String, Unix>);
-
-impl DownloadedEpisodes {
-    fn load(path: &Path) -> Self {
-        let s = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Self::default();
-            }
-            e @ Err(_) => e.unwrap(),
-        };
-
-        let mut hashmap: HashMap<String, Unix> = HashMap::new();
-
-        for line in s.trim().lines() {
-            let mut parts = line.split_whitespace();
-            if let (Some(id), Some(timestamp_str)) = (parts.next(), parts.next()) {
-                let id = id.to_string();
-                let timestamp = timestamp_str
-                    .parse::<i64>()
-                    .expect("Timestamp should be a valid i64");
-                let timestamp = std::time::Duration::from_secs(timestamp as u64);
-
-                hashmap.insert(id, timestamp);
-            }
-        }
-
-        Self(hashmap)
-    }
-
-    fn append(path: &Path, id: &str, episode: &DownloadedEpisode) {
-        use std::io::Write;
-
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-
-        writeln!(
-            file,
-            "{} {} \"{}\"",
-            id,
-            utils::current_unix().as_secs(),
-            episode.as_ref().title
-        )
-        .unwrap();
     }
 }

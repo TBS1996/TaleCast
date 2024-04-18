@@ -1,5 +1,4 @@
 use crate::patterns::FullPattern;
-use crate::patterns::SourceType;
 use crate::utils;
 use crate::utils::Unix;
 use regex::Regex;
@@ -99,10 +98,10 @@ pub struct Config {
     pub id_pattern: FullPattern,
     pub download_path: FullPattern,
     pub tracker_path: FullPattern,
+    pub symlink: Option<FullPattern>,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
     pub mode: DownloadMode,
-    pub symlink: Option<FullPattern>,
 }
 
 impl Config {
@@ -186,20 +185,20 @@ impl Config {
             .download_path
             .unwrap_or_else(|| global_config.download_path.clone());
 
-        let download_path = FullPattern::from_str(&download_path_str, vec![SourceType::Podcast]);
+        let download_path = FullPattern::from_str(&download_path_str);
 
         let tracker_path = match podcast_config
             .tracker_path
             .into_val(global_config.tracker_path.as_ref())
         {
-            Some(tracker_path) => FullPattern::from_str(&tracker_path, vec![SourceType::Podcast]),
+            Some(tracker_path) => FullPattern::from_str(&tracker_path),
             None => {
                 if download_path_str.ends_with('/') {
                     let p = download_path_str + ".downloaded";
-                    FullPattern::from_str(&p, vec![SourceType::Podcast])
+                    FullPattern::from_str(&p)
                 } else {
                     let p = download_path_str + "/.downloaded";
-                    FullPattern::from_str(&p, vec![SourceType::Podcast])
+                    FullPattern::from_str(&p)
                 }
             }
         };
@@ -208,28 +207,20 @@ impl Config {
             .name_pattern
             .unwrap_or_else(|| global_config.name_pattern.clone());
 
-        let name_pattern = FullPattern::from_str(&name_pattern, SourceType::all());
+        let name_pattern = FullPattern::from_str(&name_pattern);
 
         let id_pattern = podcast_config
             .id_pattern
             .unwrap_or_else(|| global_config.id_pattern.clone());
 
-        let id_pattern = FullPattern::from_str(
-            &id_pattern,
-            vec![SourceType::Id3, SourceType::Podcast, SourceType::Episode],
-        );
+        let id_pattern = FullPattern::from_str(&id_pattern);
 
         let url = podcast_config.url;
 
         let symlink = podcast_config
             .symlink
             .or(global_config.symlink.clone())
-            .map(|str| {
-                FullPattern::from_str(
-                    &str,
-                    vec![SourceType::Id3, SourceType::Podcast, SourceType::Episode],
-                )
-            });
+            .map(|str| FullPattern::from_str(&str));
 
         Self {
             url,

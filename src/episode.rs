@@ -32,7 +32,7 @@ impl<'a> Episode<'a> {
     }
 
     pub fn get_text_value(&self, tag: &str) -> Option<&str> {
-        self.raw.get(tag).unwrap().as_str()
+        self.raw.get(tag)?.as_str()
     }
 
     /// Filename of episode when it's being downloaded.

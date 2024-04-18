@@ -127,7 +127,6 @@ Data Patterns:
 | rss::episode | Represents the XML of an individual episode. The data it takes in is the name of an XML tag. The output is the contents of that tag. |
 | rss::channel | Represents the XML of a podcast. The data it takes in is the name of an XML tag. The output is the contents of that tag.             |
 | pubdate      | The time the episode was published. Takes in a formatter string.                                                                     |
-| id3tag       | Takes in the name of an ID3v2 tag, outputs the contents of the tag. Valid for MP3 files.                                             |
 
 Look at the default value of the `name_pattern` setting for an example of how to use them.
 

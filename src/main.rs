@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 mod config;
 mod display;
+mod download_tracker;
 mod episode;
 mod opml;
 mod patterns;

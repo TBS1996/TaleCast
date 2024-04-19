@@ -77,6 +77,7 @@ pub struct Podcasts {
     mp: MultiProgress,
     podcasts: Vec<Podcast>,
     client: Arc<reqwest::Client>,
+    global_config: GlobalConfig,
 }
 
 impl Podcasts {
@@ -89,16 +90,12 @@ impl Podcasts {
             .map(Arc::new)
             .unwrap();
 
-        let longest_name = configs.longest_name();
-
         let mut podcasts = vec![];
         eprintln!("fetching podcasts...");
         for (name, config) in configs.0 {
             let config = Config::new(&global_config, config);
-            let progress_bar =
-                DownloadBar::new(name.clone(), global_config.style(), &mp, longest_name);
             let client = Arc::clone(&client);
-            let podcast = Podcast::new(name, config, client, progress_bar);
+            let podcast = Podcast::new(name, config, client);
             podcasts.push(podcast);
         }
 
@@ -110,18 +107,36 @@ impl Podcasts {
             podcasts,
             mp,
             client,
+            global_config,
         }
+    }
+
+    fn longest_name(&self) -> usize {
+        self.podcasts
+            .iter()
+            .map(|pod| pod.name().chars().count())
+            .max()
+            .unwrap()
     }
 
     pub async fn sync(self) -> Vec<PathBuf> {
         eprintln!("syncing {} podcasts", &self.podcasts.len());
+
+        let longest_name = self.longest_name();
 
         let futures = self
             .podcasts
             .into_iter()
             .map(|podcast| {
                 let client = Arc::clone(&self.client);
-                tokio::task::spawn(async move { podcast.sync(client).await })
+                let ui = DownloadBar::new(
+                    podcast.name.clone(),
+                    self.global_config.style(),
+                    &self.mp,
+                    longest_name,
+                );
+
+                tokio::task::spawn(async move { podcast.sync(client, ui).await })
             })
             .collect::<Vec<_>>();
 
@@ -139,7 +154,6 @@ pub struct Podcast {
     name: String, // The configured name in `podcasts.toml`.
     xml: serde_json::Value,
     config: Config,
-    ui: DownloadBar,
 }
 
 impl Podcast {
@@ -187,8 +201,8 @@ impl Podcast {
         utils::val_to_url(inner)
     }
 
-    pub async fn sync(&self, client: Arc<reqwest::Client>) -> Vec<PathBuf> {
-        self.ui.init();
+    pub async fn sync(&self, client: Arc<reqwest::Client>, ui: DownloadBar) -> Vec<PathBuf> {
+        ui.init();
 
         let episodes = self.pending_episodes();
         let episode_qty = episodes.len();
@@ -197,8 +211,8 @@ impl Podcast {
         let mut hook_handles = vec![];
 
         for (index, episode) in episodes.into_iter().enumerate() {
-            self.ui.begin_download(&episode, index, episode_qty);
-            let mut downloaded_episode = self.download_episode(&client, episode).await;
+            ui.begin_download(&episode, index, episode_qty);
+            let mut downloaded_episode = self.download_episode(&client, &ui, episode).await;
             self.process_episode(&mut downloaded_episode).await;
             hook_handles.extend(self.run_download_hook(&downloaded_episode));
             self.mark_downloaded(&downloaded_episode);
@@ -206,11 +220,11 @@ impl Podcast {
         }
 
         if !hook_handles.is_empty() {
-            self.ui.hook_status();
+            ui.hook_status();
             futures::future::join_all(hook_handles).await;
         }
 
-        self.ui.complete();
+        ui.complete();
         downloaded
             .into_iter()
             .map(|episode| episode.path().to_owned())
@@ -224,21 +238,11 @@ impl Podcast {
         path.join(episode.partial_name())
     }
 
-    async fn new(
-        name: String,
-        config: Config,
-        client: Arc<reqwest::Client>,
-        progress_bar: DownloadBar,
-    ) -> Self {
+    async fn new(name: String, config: Config, client: Arc<reqwest::Client>) -> Self {
         let xml_string = utils::download_text(&client, &config.url).await;
         let xml = xml_to_value(&xml_string);
 
-        Self {
-            name,
-            xml,
-            ui: progress_bar,
-            config,
-        }
+        Self { name, xml, config }
     }
 
     fn episodes(&self) -> Vec<Episode<'_>> {
@@ -359,6 +363,7 @@ impl Podcast {
     pub async fn download_episode<'a>(
         &self,
         client: &reqwest::Client,
+        ui: &DownloadBar,
         episode: Episode<'a>,
     ) -> DownloadedEpisode<'a> {
         let partial_path = self.download_path(&episode);
@@ -382,7 +387,7 @@ impl Podcast {
         let total_size = response.content_length().unwrap_or(0);
         let extension = utils::get_extension_from_response(&response, &episode);
 
-        self.ui.init_download_bar(downloaded, total_size);
+        ui.init_download_bar(downloaded, total_size);
 
         let mut stream = response.bytes_stream();
 
@@ -390,7 +395,7 @@ impl Podcast {
             let chunk = item.unwrap();
             file.write_all(&chunk).unwrap();
             downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
-            self.ui.set_progress(downloaded);
+            ui.set_progress(downloaded);
         }
 
         let path = {

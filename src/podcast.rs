@@ -73,8 +73,10 @@ fn xml_to_value(xml: &str) -> Value {
 }
 
 pub struct Podcasts {
-    _mp: MultiProgress,
+    #[allow(dead_code)]
+    mp: MultiProgress,
     podcasts: Vec<Podcast>,
+    client: Arc<reqwest::Client>,
 }
 
 impl Podcasts {
@@ -104,7 +106,11 @@ impl Podcasts {
 
         podcasts.sort_by_key(|pod| pod.name.clone());
 
-        Self { podcasts, _mp: mp }
+        Self {
+            podcasts,
+            mp,
+            client,
+        }
     }
 
     pub async fn sync(self) -> Vec<PathBuf> {
@@ -113,7 +119,10 @@ impl Podcasts {
         let futures = self
             .podcasts
             .into_iter()
-            .map(|podcast| tokio::task::spawn(async move { podcast.sync().await }))
+            .map(|podcast| {
+                let client = Arc::clone(&self.client);
+                tokio::task::spawn(async move { podcast.sync(client).await })
+            })
             .collect::<Vec<_>>();
 
         future::join_all(futures)
@@ -131,7 +140,6 @@ pub struct Podcast {
     xml: serde_json::Value,
     config: Config,
     ui: DownloadBar,
-    client: Arc<reqwest::Client>,
 }
 
 impl Podcast {
@@ -179,7 +187,7 @@ impl Podcast {
         utils::val_to_url(inner)
     }
 
-    pub async fn sync(&self) -> Vec<PathBuf> {
+    pub async fn sync(&self, client: Arc<reqwest::Client>) -> Vec<PathBuf> {
         self.ui.init();
 
         let episodes = self.pending_episodes();
@@ -190,7 +198,7 @@ impl Podcast {
 
         for (index, episode) in episodes.into_iter().enumerate() {
             self.ui.begin_download(&episode, index, episode_qty);
-            let mut downloaded_episode = self.download_episode(episode).await;
+            let mut downloaded_episode = self.download_episode(&client, episode).await;
             self.process_episode(&mut downloaded_episode).await;
             hook_handles.extend(self.run_download_hook(&downloaded_episode));
             self.mark_downloaded(&downloaded_episode);
@@ -230,7 +238,6 @@ impl Podcast {
             xml,
             ui: progress_bar,
             config,
-            client,
         }
     }
 
@@ -349,7 +356,11 @@ impl Podcast {
         episodes
     }
 
-    pub async fn download_episode<'a>(&self, episode: Episode<'a>) -> DownloadedEpisode<'a> {
+    pub async fn download_episode<'a>(
+        &self,
+        client: &reqwest::Client,
+        episode: Episode<'a>,
+    ) -> DownloadedEpisode<'a> {
         let partial_path = self.download_path(&episode);
 
         let mut file = fs::OpenOptions::new()
@@ -360,8 +371,7 @@ impl Podcast {
 
         let mut downloaded = file.seek(io::SeekFrom::End(0)).unwrap();
 
-        let response = self
-            .client
+        let response = client
             .get(episode.url)
             .header(reqwest::header::RANGE, format!("bytes={}-", downloaded))
             .send()

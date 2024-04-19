@@ -480,6 +480,25 @@ impl PodcastConfigs {
         Self(inner)
     }
 
+    pub fn assert_not_empty(self) -> Self {
+        if self.is_empty() {
+            eprintln!("No podcasts configured!");
+            eprintln!("You can add podcasts with the following methods:\n");
+            eprintln!("* \"{} --search <name of podcast>\"", crate::APPNAME);
+            eprintln!(
+                "* \"{} --add <feed url>  <name of podcast>\"",
+                crate::APPNAME
+            );
+            eprintln!(
+                "*  Manually configuring the {:?} file.",
+                &PodcastConfigs::path()
+            );
+            process::exit(1);
+        }
+
+        self
+    }
+
     pub fn longest_name(&self) -> usize {
         match self.0.iter().map(|(name, _)| name.chars().count()).max() {
             Some(len) => len,

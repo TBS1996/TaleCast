@@ -467,7 +467,6 @@ impl PodcastConfigs {
                 "*  Manually configuring the {:?} file.",
                 &PodcastConfigs::path()
             );
-            std::process::exit(1);
         }
 
         PodcastConfigs(map)

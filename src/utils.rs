@@ -212,31 +212,51 @@ pub fn edit_file(path: &Path) {
         .unwrap();
 }
 
-pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch_up: bool) {
-    #[derive(Clone)]
-    struct QueryResult {
-        name: String,
-        author: String,
-        url: String,
+pub fn replacer(val: Value, input: &str) -> String {
+    let mut inside = false;
+    let mut output = String::new();
+    let mut pattern = String::new();
+    for c in input.chars() {
+        if c == '{' {
+            if inside {
+                panic!();
+            } else {
+                inside = true;
+            }
+        } else if c == '}' {
+            if !inside {
+                panic!();
+            } else {
+                let p = std::mem::take(&mut pattern);
+                let mut replacement = val
+                    .get(&p)
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("<<{}>>", p))
+                    .replace("\\", "");
+                replacement.pop();
+                replacement.remove(0);
+                output.push_str(&replacement);
+                inside = false;
+            }
+        } else {
+            if inside {
+                pattern.push(c);
+            } else {
+                output.push(c);
+            }
+        }
     }
 
-    let response = podcast_search::search(&query).await.unwrap();
+    output
+}
+
+pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch_up: bool) {
+    let response = search(&query).await;
     let mut results = vec![];
 
     let mut idx = 0;
-    for res in response.results.into_iter() {
-        let (Some(name), Some(url)) = (res.collection_name, res.feed_url) else {
-            continue;
-        };
-
-        let q = QueryResult {
-            name,
-            url,
-            author: res
-                .artist_name
-                .unwrap_or_else(|| "<missing author>".to_string()),
-        };
-        results.push(q);
+    for res in response.into_iter() {
+        results.push(res);
         idx += 1;
         if idx == config.max_search_results() {
             break;
@@ -250,7 +270,8 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
 
     eprintln!("Enter index of podcast to add");
     for (idx, res) in results.iter().enumerate() {
-        let line = format!("{}: {} - {}", idx + 1, &res.name, &res.author);
+        let line = replacer(res.clone(), &config.search.pattern());
+        let line = format!("{}: {}", idx, line);
         let line = truncate_string(&line, config.max_line_width(), true);
         println!("{}", line);
     }
@@ -283,8 +304,8 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
 
     let mut regex_parts = vec![];
     for index in indices {
-        let url = results[index].url.clone();
-        let name = results[index].name.clone();
+        let url = results[index].get("feedUrl").unwrap().to_string();
+        let name = results[index].get("artistName").unwrap().to_string();
 
         let podcast = config::PodcastConfig::new(url);
 
@@ -343,6 +364,25 @@ pub fn get_extension_from_response(response: &reqwest::Response, url: &str) -> S
         .map(|(l, _)| l.to_string())
         .unwrap_or(ext);
     ext
+}
+
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+
+pub async fn search(terms: &str) -> Vec<Value> {
+    let encoded: String = utf8_percent_encode(terms, NON_ALPHANUMERIC).to_string();
+    let url = format!(
+        "https://itunes.apple.com/search?media=podcast&entity=podcast&term={}",
+        encoded
+    );
+    let resp = reqwest::get(&url).await.unwrap().text().await.unwrap();
+
+    serde_json::from_str::<serde_json::Value>(&resp)
+        .unwrap()
+        .get("results")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone()
 }
 
 #[cfg(test)]

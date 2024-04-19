@@ -245,11 +245,20 @@ fn default_user_agent() -> String {
 pub struct SearchSettings {
     max_results: Option<usize>,
     line_width: Option<usize>,
+    pattern: Option<String>,
 }
 
 impl SearchSettings {
     fn is_default(&self) -> bool {
         self == &Self::default()
+    }
+
+    pub fn pattern(&self) -> String {
+        self.pattern.clone().unwrap_or_else(Self::default_pattern)
+    }
+
+    fn default_pattern() -> String {
+        "{collectionName} - {artistName}".to_string()
     }
 }
 
@@ -333,7 +342,7 @@ pub struct GlobalConfig {
     style: std::sync::Arc<IndicatifSettings>,
     user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "SearchSettings::is_default")]
-    search: SearchSettings,
+    pub search: SearchSettings,
     symlink: Option<String>,
 }
 

@@ -223,11 +223,12 @@ async fn main() {
 
         Action::Sync {
             filter,
-            print,
             global_config,
+            print,
         } => {
             let podcast_configs = PodcastConfigs::load().assert_not_empty().filter(filter);
-            let paths: Vec<PathBuf> = Podcasts::new(global_config, podcast_configs)
+            let paths = Podcasts::new(global_config)
+                .add(podcast_configs)
                 .await
                 .sync()
                 .await;

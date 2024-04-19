@@ -73,7 +73,6 @@ fn xml_to_value(xml: &str) -> Value {
 }
 
 pub struct Podcasts {
-    #[allow(dead_code)]
     mp: MultiProgress,
     podcasts: Vec<Podcast>,
     client: Arc<reqwest::Client>,
@@ -81,7 +80,7 @@ pub struct Podcasts {
 }
 
 impl Podcasts {
-    pub async fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
+    pub fn new(global_config: GlobalConfig) -> Self {
         let mp = MultiProgress::new();
 
         let client = reqwest::Client::builder()
@@ -90,39 +89,46 @@ impl Podcasts {
             .map(Arc::new)
             .unwrap();
 
-        let mut podcasts = vec![];
-        eprintln!("fetching podcasts...");
-        for (name, config) in configs.0 {
-            let config = Config::new(&global_config, config);
-            let client = Arc::clone(&client);
-            let podcast = Podcast::new(name, config, client);
-            podcasts.push(podcast);
-        }
-
-        let mut podcasts = futures::future::join_all(podcasts).await;
-
-        podcasts.sort_by_key(|pod| pod.name.clone());
+        let podcasts = vec![];
 
         Self {
-            podcasts,
             mp,
             client,
+            podcasts,
             global_config,
         }
     }
+    pub async fn add(mut self, configs: PodcastConfigs) -> Self {
+        eprintln!("fetching podcasts...");
+        let mut podcasts = vec![];
 
-    fn longest_name(&self) -> usize {
+        for (name, config) in configs.0 {
+            let config = Config::new(&self.global_config, config);
+            let podcast = Podcast::new(name, config, &self.client);
+            podcasts.push(podcast);
+        }
+
+        let podcasts = futures::future::join_all(podcasts).await;
+        self.podcasts.extend(podcasts);
+
+        self.podcasts.sort_by_key(|pod| pod.name.clone());
+
+        self
+    }
+
+    fn longest_name(&self) -> Option<usize> {
         self.podcasts
             .iter()
             .map(|pod| pod.name().chars().count())
             .max()
-            .unwrap()
     }
 
     pub async fn sync(self) -> Vec<PathBuf> {
         eprintln!("syncing {} podcasts", &self.podcasts.len());
 
-        let longest_name = self.longest_name();
+        let Some(longest_name) = self.longest_name() else {
+            return vec![];
+        };
 
         let futures = self
             .podcasts
@@ -238,7 +244,7 @@ impl Podcast {
         path.join(episode.partial_name())
     }
 
-    async fn new(name: String, config: Config, client: Arc<reqwest::Client>) -> Self {
+    async fn new(name: String, config: Config, client: &reqwest::Client) -> Self {
         let xml_string = utils::download_text(&client, &config.url).await;
         let xml = xml_to_value(&xml_string);
 

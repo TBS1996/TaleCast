@@ -358,14 +358,15 @@ pub fn val_to_url<'a>(val: &'a serde_json::Value) -> Option<&'a str> {
 }
 
 pub fn parse_quoted_words(line: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = line.split('"').collect();
-    if parts.len() >= 5 {
-        let key = parts[1].to_string();
-        let value = parts[3].to_string();
-        Some((key, value))
-    } else {
-        None
-    }
+    let (key, val) = line.split_once(" ")?;
+    let mut key = key.to_string();
+    let mut val = val.to_string();
+    key.pop();
+    val.pop();
+    key.remove(0);
+    val.remove(0);
+
+    Some((key, val))
 }
 
 pub fn get_file_map_val(file_path: &Path, key: &str) -> Option<String> {
@@ -391,7 +392,7 @@ pub fn append_to_config(file_path: &Path, key: &str, value: &str) -> io::Result<
         .append(true)
         .open(file_path)?;
 
-    let line = format!("\"{}\" \"{}\"\n", key, value);
+    let line = format!("{} {}", key, value);
 
     file.write_all(line.as_bytes())?;
 

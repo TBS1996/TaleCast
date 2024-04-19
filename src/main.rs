@@ -226,7 +226,24 @@ async fn main() {
             print,
             global_config,
         } => {
-            let podcast_configs = PodcastConfigs::load().filter(filter);
+            let podcast_configs = PodcastConfigs::load();
+
+            if podcast_configs.is_empty() {
+                eprintln!("No podcasts configured!");
+                eprintln!("You can add podcasts with the following methods:\n");
+                eprintln!("* \"{} --search <name of podcast>\"", crate::APPNAME);
+                eprintln!(
+                    "* \"{} --add <feed url>  <name of podcast>\"",
+                    crate::APPNAME
+                );
+                eprintln!(
+                    "*  Manually configuring the {:?} file.",
+                    &PodcastConfigs::path()
+                );
+                return;
+            }
+
+            let podcast_configs = podcast_configs.filter(filter);
             let paths: Vec<PathBuf> = Podcasts::new(global_config, podcast_configs)
                 .await
                 .sync()

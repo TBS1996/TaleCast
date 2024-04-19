@@ -464,20 +464,6 @@ impl PodcastConfigs {
         let config_str = std::fs::read_to_string(&path).unwrap();
         let map: HashMap<String, PodcastConfig> = toml::from_str(&config_str).unwrap();
 
-        if map.is_empty() {
-            eprintln!("No podcasts configured!");
-            eprintln!("You can add podcasts with the following methods:\n");
-            eprintln!("* \"{} --search <name of podcast>\"", crate::APPNAME);
-            eprintln!(
-                "* \"{} --add <feed url>  <name of podcast>\"",
-                crate::APPNAME
-            );
-            eprintln!(
-                "*  Manually configuring the {:?} file.",
-                &PodcastConfigs::path()
-            );
-        }
-
         PodcastConfigs(map)
     }
 

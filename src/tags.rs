@@ -45,8 +45,9 @@ fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
     tag.pictures().any(|pic| pic.picture_type == ty)
 }
 
+use crate::podcast::Podcast;
 pub async fn set_mp3_tags<'a>(
-    channel: &'a rss::Channel,
+    podcast: &'a Podcast,
     episode: &'a DownloadedEpisode<'a>,
     custom_tags: &HashMap<String, String>,
 ) -> id3::Tag {
@@ -64,13 +65,13 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.artist().is_none() {
-        if let Some(author) = episode.inner.author() {
+        if let Some(author) = episode.author() {
             tags.set_artist(author);
         }
     }
 
     if tags.album().is_none() {
-        tags.set_album(channel.title());
+        tags.set_album(podcast.title());
     }
 
     if tags.genre().is_none() {
@@ -78,11 +79,9 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.track().is_none() {
-        if let Some(itunes) = episode.inner.itunes_ext() {
-            if let Some(episode) = itunes.episode() {
-                if let Ok(episode) = episode.parse::<u32>() {
-                    tags.set_track(episode);
-                }
+        if let Some(episode) = episode.itunes_episode() {
+            if let Ok(episode) = episode.parse::<u32>() {
+                tags.set_track(episode);
             }
         }
     }
@@ -95,34 +94,30 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::COPYRIGHT).is_none() {
-        if let Some(desc) = episode.inner.description() {
+        if let Some(desc) = podcast.copyright() {
             tags.set_text(Id3Tag::COPYRIGHT, desc);
         }
     }
 
     if tags.get(Id3Tag::DESCRIPTION).is_none() {
-        if let Some(desc) = episode.inner.description() {
+        if let Some(desc) = episode.description() {
             tags.set_text(Id3Tag::DESCRIPTION, desc);
         }
     }
 
     if !has_picture_type(&tags, id3::frame::PictureType::CoverFront) {
-        if let Some(itunes) = episode.inner.itunes_ext() {
-            if let Some(img_url) = itunes.image() {
-                add_picture(&mut tags, id3::frame::PictureType::CoverFront, img_url).await;
-            }
+        if let Some(img_url) = episode.image().or(podcast.image()) {
+            add_picture(&mut tags, id3::frame::PictureType::CoverFront, img_url).await;
         }
     }
 
     if tags.get(Id3Tag::PODCASTCATEGORY).is_none() {
-        if let Some(itunes) = channel.itunes_ext() {
-            let mut strs = vec![];
-            for cat in itunes.categories() {
-                strs.push(&cat.text);
-            }
-
-            tags.set_text_values(Id3Tag::PODCASTCATEGORY, strs);
+        let mut strs = vec![];
+        for cat in podcast.categories() {
+            strs.push(cat);
         }
+
+        tags.set_text_values(Id3Tag::PODCASTCATEGORY, strs);
     }
 
     if tags.date_released().is_none() {
@@ -145,27 +140,23 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::LANGUAGE).is_none() {
-        if let Some(language) = channel.language() {
+        if let Some(language) = podcast.language() {
             tags.set_text(Id3Tag::LANGUAGE, language);
         }
     }
 
     if tags.get(Id3Tag::DURATION).is_none() {
-        if let Some(itunes) = episode.inner.itunes_ext() {
-            if let Some(dur) = itunes.duration() {
-                if let Ok(secs) = dur.parse::<u32>() {
-                    let millis = secs * 1000;
-                    tags.set_text(Id3Tag::DURATION, millis.to_string());
-                }
+        if let Some(dur) = episode.itunes_duration() {
+            if let Ok(secs) = dur.parse::<u32>() {
+                let millis = secs * 1000;
+                tags.set_text(Id3Tag::DURATION, millis.to_string());
             }
         }
     }
 
     if tags.get(Id3Tag::PUBLISHER).is_none() {
-        if let Some(itunes) = channel.itunes_ext() {
-            if let Some(author) = itunes.author() {
-                tags.set_text(Id3Tag::PUBLISHER, author);
-            }
+        if let Some(author) = podcast.author() {
+            tags.set_text(Id3Tag::PUBLISHER, author);
         }
     }
 

@@ -1,14 +1,8 @@
 use crate::config;
-use quick_xml::{
-    events::{BytesEnd, BytesStart, Event},
-    Reader, Writer,
-};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
-use std::borrow::Cow;
 use std::io;
-use std::io::Cursor;
 use std::io::Write as IOWrite;
 use std::path::Path;
 use std::path::PathBuf;
@@ -56,72 +50,6 @@ pub fn default_download_path() -> PathBuf {
     p
 }
 
-pub fn get_guid(item: &serde_json::Map<String, Value>) -> &str {
-    let guid_obj = item.get("guid").unwrap();
-    if let Some(guid) = guid_obj.as_str() {
-        return guid;
-    }
-
-    guid_obj
-        .as_object()
-        .unwrap()
-        .get("#text")
-        .unwrap()
-        .as_str()
-        .unwrap()
-}
-
-/// The quickxml_to_serde library merges tags that have same name but different namespaces.
-/// This is not the behaviour i want, as users should be able to fetch specific names with
-/// patterns. This is a hack to avoid it, by replacing the colon (which marks a namespace)
-/// with a replacement symbol. When the user then queries a tag with a pattern,
-/// we replace the colons in their pattern with the same replacement.
-pub fn remove_xml_namespaces(xml: &str, replacement: &str) -> String {
-    fn modify_name<'a>(original_name: &'a [u8], replacement: &'a str) -> Cow<'a, [u8]> {
-        if let Some(pos) = original_name.iter().position(|&b| b == b':') {
-            let mut new_name = Vec::from(&original_name[..pos]);
-            new_name.extend_from_slice(replacement.as_bytes());
-            new_name.extend_from_slice(&original_name[pos + 1..]);
-            Cow::Owned(new_name)
-        } else {
-            Cow::Borrowed(original_name)
-        }
-    }
-
-    let mut reader = Reader::from_str(xml);
-    reader.trim_text(true);
-    let mut writer = Writer::new(Cursor::new(Vec::new()));
-
-    loop {
-        match reader.read_event() {
-            Ok(Event::Start(e)) => {
-                let name = e.name();
-                let modified_name = modify_name(name.as_ref(), replacement);
-                let elem_name_str = String::from_utf8_lossy(&modified_name);
-                let elem = BytesStart::new(elem_name_str.as_ref());
-                writer
-                    .write_event(Event::Start(elem))
-                    .expect("Unable to write event");
-            }
-            Ok(Event::End(e)) => {
-                let name = e.name();
-                let modified_name = modify_name(name.as_ref(), replacement);
-                let elem_name_str = String::from_utf8_lossy(&modified_name);
-                let elem = BytesEnd::new(elem_name_str.as_ref());
-                writer
-                    .write_event(Event::End(elem))
-                    .expect("Unable to write event");
-            }
-            Ok(Event::Eof) => break,
-            Ok(e) => writer.write_event(e).expect("Unable to write event"),
-            Err(e) => panic!("Error at position {}: {:.?}", reader.buffer_position(), e),
-        }
-    }
-
-    let result = writer.into_inner().into_inner();
-    String::from_utf8(result).expect("Found invalid UTF-8")
-}
-
 pub fn truncate_string(s: &str, max_width: usize, append_dots: bool) -> String {
     let mut width = 0;
     let mut truncated = String::new();
@@ -164,7 +92,7 @@ pub fn handle_response(response: Result<reqwest::Response, reqwest::Error>) -> r
             let error_message = match e {
                 e if e.is_builder() => format!("Invalid URL: {}", url),
                 e if e.is_connect() => format!(
-                    "Failed to connect. Ensure you're connected to the internet: {}",
+                    "Failed to connect to following url {}.\nEnsure you're connected to the internet",
                     url
                 ),
                 e if e.is_timeout() => format!("Timeout reached for URL: {}", url),
@@ -385,22 +313,32 @@ pub async fn search(terms: &str) -> Vec<Value> {
         .clone()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_modify_xml_tags() {
-        let xml = r#"<root><foo:bar>Content</foo:bar><baz:qux>More Content</baz:qux></root>"#;
-        let replacement = "___placeholder___";
-
-        let expected = r#"<root><foo___placeholder___bar>Content</foo___placeholder___bar><baz___placeholder___qux>More Content</baz___placeholder___qux></root>"#;
-
-        let modified_xml = remove_xml_namespaces(xml, replacement);
-
-        assert_eq!(
-            modified_xml, expected,
-            "The modified XML does not match the expected output."
-        );
+pub fn val_to_str<'a>(val: &'a serde_json::Value) -> Option<&'a str> {
+    if let Some(val) = val.as_str() {
+        return Some(val);
     }
+
+    val.as_object()?.get("#text")?.as_str()
+}
+
+pub fn val_to_url<'a>(val: &'a serde_json::Value) -> Option<&'a str> {
+    if let Some(val) = val.as_str() {
+        return Some(val);
+    }
+
+    let obj = val.as_object()?;
+
+    if let Some(url) = obj.get("url") {
+        return url.as_str();
+    }
+
+    if let Some(url) = obj.get("@href") {
+        return url.as_str();
+    }
+
+    if let Some(url) = obj.get("src") {
+        return url.as_str();
+    }
+
+    obj.get("uri")?.as_str()
 }

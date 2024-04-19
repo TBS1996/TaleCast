@@ -7,32 +7,60 @@ use std::time;
 pub struct Episode<'a> {
     pub title: &'a str,
     pub url: &'a str,
+    pub mime: Option<&'a str>,
     pub guid: &'a str,
     pub published: time::Duration,
     pub index: usize,
-    pub inner: &'a rss::Item,
     pub raw: &'a serde_json::Map<String, serde_json::Value>,
 }
 
 impl<'a> Episode<'a> {
-    pub fn new(
-        item: &'a rss::Item,
-        index: usize,
-        raw: &'a serde_json::Map<String, serde_json::Value>,
-    ) -> Option<Self> {
-        Some(Self {
-            title: item.title.as_ref().unwrap(),
-            url: item.enclosure().unwrap().url(),
-            guid: item.guid().unwrap().value(),
-            published: utils::date_str_to_unix(item.pub_date().unwrap()),
+    pub fn new(index: usize, raw: &'a serde_json::Map<String, serde_json::Value>) -> Option<Self> {
+        let title = raw.get("title").unwrap().as_str().unwrap();
+        let enclosure = raw.get("enclosure").unwrap();
+        let url = enclosure.get("@url").map(|x| x.as_str()).unwrap().unwrap();
+        let mime = enclosure.get("@type").and_then(|x| x.as_str());
+        let published = utils::date_str_to_unix(raw.get("pubDate").unwrap().as_str().unwrap());
+        let guid = utils::val_to_str(raw.get("guid")?)?;
+
+        Self {
+            title,
+            url,
+            guid,
+            published,
             index,
-            inner: item,
             raw,
-        })
+            mime,
+        }
+        .into()
     }
 
-    pub fn get_text_value(&self, tag: &str) -> Option<&str> {
-        self.raw.get(tag)?.as_str()
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        let inner = self.raw.get(key)?;
+        utils::val_to_str(inner)
+    }
+
+    pub fn image(&self) -> Option<&str> {
+        let key = format!("itunes{}image", utils::NAMESPACE_ALTER);
+        utils::val_to_url(self.raw.get(&key)?)
+    }
+
+    pub fn author(&self) -> Option<&str> {
+        self.get_str("author")
+    }
+
+    pub fn description(&self) -> Option<&str> {
+        self.get_str("description")
+    }
+
+    pub fn itunes_episode(&self) -> Option<&str> {
+        let key = format!("itunes{}episode", utils::NAMESPACE_ALTER);
+        self.get_str(&key)
+    }
+
+    pub fn itunes_duration(&self) -> Option<&str> {
+        let key = format!("itunes{}duration", utils::NAMESPACE_ALTER);
+        self.get_str(&key)
     }
 
     /// Filename of episode when it's being downloaded.

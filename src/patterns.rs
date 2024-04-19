@@ -131,7 +131,7 @@ impl Evaluate for DataPattern {
                 let key = &self.data;
 
                 let key = key.replace(":", utils::NAMESPACE_ALTER);
-                episode.get_text_value(&key).unwrap_or(null).to_string()
+                episode.get_str(&key).unwrap_or(null).to_string()
             }
             Ty::RssChannel => {
                 let key = &self.data;

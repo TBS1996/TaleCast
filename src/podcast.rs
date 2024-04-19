@@ -14,7 +14,6 @@ use indicatif::MultiProgress;
 use io::Seek;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::Write as IOWrite;
@@ -23,9 +22,10 @@ use std::process;
 use std::sync::Arc;
 
 fn xml_to_value(xml: &str) -> Value {
-    let xml = utils::remove_xml_namespaces(&xml, NAMESPACE_ALTER);
+    let replacement = format!("itunes{}", NAMESPACE_ALTER);
+    let xml = xml.replace("itunes:", &replacement);
     let conf = XmlConfig::new_with_defaults();
-    xml_string_to_json(xml, &conf).unwrap()
+    xml_string_to_json(xml.to_string(), &conf).unwrap()
 }
 
 pub struct Podcasts {
@@ -84,7 +84,6 @@ impl Podcasts {
 #[derive(Debug)]
 pub struct Podcast {
     name: String, // The configured name in `podcasts.toml`.
-    channel: rss::Channel,
     xml: serde_json::Value,
     config: Config,
     ui: DownloadBar,
@@ -98,6 +97,42 @@ impl Podcast {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    fn get_str<'a>(&'a self, key: &str) -> Option<&'a str> {
+        let inner = self.xml.get(key)?;
+        utils::val_to_str(inner)
+    }
+
+    pub fn title(&self) -> &str {
+        self.get_str("title").unwrap()
+    }
+
+    pub fn author(&self) -> Option<&str> {
+        let key = format!("itunes{}author", utils::NAMESPACE_ALTER);
+        self.get_str(&key)
+    }
+
+    pub fn categories(&self) -> Vec<&str> {
+        let key = format!("itunes{}category", utils::NAMESPACE_ALTER);
+        match self.xml.get(&key).and_then(|x| x.as_array()) {
+            Some(v) => v.iter().map(|x| x.as_str().unwrap()).collect(),
+            None => vec![],
+        }
+    }
+
+    pub fn copyright(&self) -> Option<&str> {
+        let inner = self.xml.get("copyright")?;
+        utils::val_to_str(&inner)
+    }
+
+    pub fn language(&self) -> Option<&str> {
+        self.get_str("language")
+    }
+
+    pub fn image(&self) -> Option<&str> {
+        let inner = self.xml.get("image")?;
+        utils::val_to_url(inner)
     }
 
     pub async fn sync(&self) -> Vec<PathBuf> {
@@ -144,12 +179,15 @@ impl Podcast {
         progress_bar: DownloadBar,
     ) -> Self {
         let xml_string = utils::download_text(&client, &config.url).await;
-        let channel = rss::Channel::read_from(xml_string.as_bytes()).unwrap();
-        let xml = xml_to_value(&xml_string);
+        let xml = xml_to_value(&xml_string)
+            .get("rss")
+            .unwrap()
+            .get("channel")
+            .unwrap()
+            .clone();
 
         Self {
             name,
-            channel,
             xml,
             ui: progress_bar,
             config,
@@ -160,11 +198,8 @@ impl Podcast {
     fn episodes(&self) -> Vec<Episode<'_>> {
         let mut vec = vec![];
 
-        let mut map = HashMap::<&str, &serde_json::Map<String, serde_json::Value>>::new();
-
-        let rss = self.xml.get("rss").unwrap();
-        let channel = rss.get("channel").unwrap();
-        let raw_items = channel
+        let raw_items = self
+            .xml
             .get("item")
             .expect("items not found")
             .as_array()
@@ -172,17 +207,7 @@ impl Podcast {
 
         for item in raw_items {
             let item = item.as_object().unwrap();
-            let guid = utils::get_guid(item);
-            map.insert(guid, item);
-        }
-
-        for item in self.channel.items() {
-            let Some(guid) = item.guid() else { continue };
-            let obj = map.get(guid.value()).unwrap();
-
-            // in case the episodes are not chronological we put all indices as zero and then
-            // sort by published date and set index.
-            if let Some(episode) = Episode::new(&item, 0, obj) {
+            if let Some(episode) = Episode::new(0, item) {
                 vec.push(episode);
             }
         }
@@ -332,7 +357,7 @@ impl Podcast {
 
     async fn process_episode(&self, episode: &mut DownloadedEpisode<'_>) {
         if episode.path().extension().unwrap() == "mp3" {
-            tags::set_mp3_tags(&self.channel, episode, &self.config.id3_tags).await;
+            tags::set_mp3_tags(&self, episode, &self.config.id3_tags).await;
         };
 
         let file_name = self.config().name_pattern.evaluate(self, episode.inner());

@@ -7,12 +7,12 @@ use crate::episode::Episode;
 use crate::patterns::Evaluate;
 use crate::tags;
 use crate::utils;
-use crate::utils::NAMESPACE_ALTER;
 use futures::future;
 use futures_util::StreamExt;
 use indicatif::MultiProgress;
 use io::Seek;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
+use serde_json::Map;
 use serde_json::Value;
 use std::fs;
 use std::io;
@@ -21,11 +21,55 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
 
+/// Converts the podcast's xml string to a [`serde_json::Value`].
+///
+/// The library will merge different namespaces together, which is why we manually change
+/// the itunes namespace, and then after converting it, we change it back. Preserving itunes:XXX as
+/// separate keys.
 fn xml_to_value(xml: &str) -> Value {
-    let replacement = format!("itunes{}", NAMESPACE_ALTER);
+    let placeholder = "__placeholder__";
+    let replacement = format!("itunes{}", placeholder);
     let xml = xml.replace("itunes:", &replacement);
     let conf = XmlConfig::new_with_defaults();
-    xml_string_to_json(xml.to_string(), &conf).unwrap()
+    let val = xml_string_to_json(xml.to_string(), &conf)
+        .unwrap()
+        .get("rss")
+        .unwrap()
+        .get("channel")
+        .unwrap()
+        .clone();
+
+    // Create a new map to store the transformed keys at the top level
+    let mut new_map: Map<String, Value> = Map::new();
+
+    if let Some(obj) = val.as_object() {
+        for (key, value) in obj {
+            let new_key = key.replace(&replacement, "itunes:");
+            new_map.insert(new_key, value.clone());
+        }
+    }
+
+    let items = val
+        .as_object()
+        .unwrap()
+        .get("item")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| {
+            let mut new_item_map: Map<String, Value> = Map::new();
+            for (key, val) in item.as_object().unwrap().iter() {
+                let new_key = key.replace(&replacement, "itunes:");
+                new_item_map.insert(new_key, val.clone());
+            }
+            Value::Object(new_item_map)
+        })
+        .collect::<Vec<Value>>();
+
+    new_map.insert("items".to_string(), Value::Array(items));
+
+    Value::Object(new_map)
 }
 
 pub struct Podcasts {
@@ -109,12 +153,12 @@ impl Podcast {
     }
 
     pub fn author(&self) -> Option<&str> {
-        let key = format!("itunes{}author", utils::NAMESPACE_ALTER);
+        let key = "itunes:author";
         self.get_str(&key)
     }
 
     pub fn categories(&self) -> Vec<&str> {
-        let key = format!("itunes{}category", utils::NAMESPACE_ALTER);
+        let key = "itunes:category";
         match self.xml.get(&key).and_then(|x| x.as_array()) {
             Some(v) => v.iter().map(|x| x.as_str().unwrap()).collect(),
             None => vec![],
@@ -179,12 +223,7 @@ impl Podcast {
         progress_bar: DownloadBar,
     ) -> Self {
         let xml_string = utils::download_text(&client, &config.url).await;
-        let xml = xml_to_value(&xml_string)
-            .get("rss")
-            .unwrap()
-            .get("channel")
-            .unwrap()
-            .clone();
+        let xml = xml_to_value(&xml_string);
 
         Self {
             name,
@@ -207,7 +246,7 @@ impl Podcast {
 
         for item in raw_items {
             let item = item.as_object().unwrap();
-            if let Some(episode) = Episode::new(0, item) {
+            if let Some(episode) = Episode::new(item) {
                 vec.push(episode);
             }
         }
@@ -331,7 +370,7 @@ impl Podcast {
         let response = utils::handle_response(response);
 
         let total_size = response.content_length().unwrap_or(0);
-        let extension = utils::get_extension_from_response(&response, &episode.url);
+        let extension = utils::get_extension_from_response(&response, &episode);
 
         self.ui.init_download_bar(downloaded, total_size);
 

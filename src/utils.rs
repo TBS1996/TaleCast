@@ -1,4 +1,5 @@
 use crate::config;
+use crate::episode::Episode;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
@@ -10,9 +11,6 @@ use std::process;
 use std::time;
 
 pub type Unix = std::time::Duration;
-
-/// Refer to [`remove_xml_namespaces`] for an explanation.
-pub const NAMESPACE_ALTER: &'static str = "__placeholder__";
 
 #[allow(dead_code)]
 pub fn log<S: AsRef<str>>(message: S) {
@@ -259,7 +257,8 @@ pub fn date_str_to_unix(date: &str) -> time::Duration {
     time::Duration::from_secs(secs as u64)
 }
 
-pub fn get_extension_from_response(response: &reqwest::Response, url: &str) -> String {
+pub fn get_extension_from_response(response: &reqwest::Response, episode: &Episode) -> String {
+    let url = &episode.url;
     let ext = match PathBuf::from(url)
         .extension()
         .and_then(|ext| ext.to_str().map(String::from))

@@ -15,13 +15,14 @@ pub struct Episode<'a> {
 }
 
 impl<'a> Episode<'a> {
-    pub fn new(index: usize, raw: &'a serde_json::Map<String, serde_json::Value>) -> Option<Self> {
+    pub fn new(raw: &'a serde_json::Map<String, serde_json::Value>) -> Option<Self> {
         let title = raw.get("title").unwrap().as_str().unwrap();
         let enclosure = raw.get("enclosure").unwrap();
-        let url = enclosure.get("@url").map(|x| x.as_str()).unwrap().unwrap();
+        let url = enclosure.get("@url").and_then(|x| x.as_str()).unwrap();
         let mime = enclosure.get("@type").and_then(|x| x.as_str());
         let published = utils::date_str_to_unix(raw.get("pubDate").unwrap().as_str().unwrap());
         let guid = utils::val_to_str(raw.get("guid")?)?;
+        let index = 0;
 
         Self {
             title,
@@ -41,8 +42,8 @@ impl<'a> Episode<'a> {
     }
 
     pub fn image(&self) -> Option<&str> {
-        let key = format!("itunes{}image", utils::NAMESPACE_ALTER);
-        utils::val_to_url(self.raw.get(&key)?)
+        let key = "itunes:image";
+        utils::val_to_url(self.raw.get(key)?)
     }
 
     pub fn author(&self) -> Option<&str> {
@@ -54,12 +55,12 @@ impl<'a> Episode<'a> {
     }
 
     pub fn itunes_episode(&self) -> Option<&str> {
-        let key = format!("itunes{}episode", utils::NAMESPACE_ALTER);
+        let key = "itunes:episode";
         self.get_str(&key)
     }
 
     pub fn itunes_duration(&self) -> Option<&str> {
-        let key = format!("itunes{}duration", utils::NAMESPACE_ALTER);
+        let key = "itunes:duration";
         self.get_str(&key)
     }
 

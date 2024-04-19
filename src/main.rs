@@ -5,6 +5,7 @@ use podcast::Podcasts;
 use regex::Regex;
 use std::path::PathBuf;
 
+mod cache;
 mod config;
 mod display;
 mod download_tracker;

@@ -129,10 +129,12 @@ impl Evaluate for DataPattern {
             }
             Ty::RssEpisode => {
                 let key = &self.data;
+
                 episode.get_str(&key).unwrap_or(null).to_string()
             }
             Ty::RssChannel => {
                 let key = &self.data;
+
                 podcast.get_text_attribute(&key).unwrap_or(null).to_string()
             }
         }

@@ -3,8 +3,11 @@ use crate::episode::Episode;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
+use std::fs;
+use std::fs::File;
 use std::io;
 use std::io::Write as IOWrite;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
@@ -29,6 +32,18 @@ pub fn config_dir() -> PathBuf {
         Err(_) => dirs::home_dir()
             .expect("unable to locate home directory. Try setting 'XDG_CONFIG_HOME' manually")
             .join(".config"),
+    }
+    .join(crate::APPNAME);
+
+    std::fs::create_dir_all(&path).unwrap();
+
+    path
+}
+
+pub fn cache_dir() -> PathBuf {
+    let path = match std::env::var("XDG_CACHE_HOME") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => dirs::cache_dir().unwrap(),
     }
     .join(crate::APPNAME);
 
@@ -340,4 +355,45 @@ pub fn val_to_url<'a>(val: &'a serde_json::Value) -> Option<&'a str> {
     }
 
     obj.get("uri")?.as_str()
+}
+
+pub fn parse_quoted_words(line: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = line.split('"').collect();
+    if parts.len() >= 5 {
+        let key = parts[1].to_string();
+        let value = parts[3].to_string();
+        Some((key, value))
+    } else {
+        None
+    }
+}
+
+pub fn get_file_map_val(file_path: &Path, key: &str) -> Option<String> {
+    let file = File::open(file_path).ok()?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line.unwrap();
+        if let Some((_key, value)) = parse_quoted_words(&line) {
+            if _key == key {
+                return Some(value);
+            }
+        }
+    }
+
+    None
+}
+
+pub fn append_to_config(file_path: &Path, key: &str, value: &str) -> io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+
+    let line = format!("\"{}\" \"{}\"\n", key, value);
+
+    file.write_all(line.as_bytes())?;
+
+    Ok(())
 }

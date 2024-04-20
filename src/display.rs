@@ -22,8 +22,7 @@ impl DownloadBar {
         longest_podcast_name: usize,
     ) -> Self {
         let bar = if settings.enabled() {
-            let bar = mp.add(ProgressBar::new_spinner());
-            Some(bar)
+            Some(mp.add(ProgressBar::new_spinner()))
         } else {
             None
         };
@@ -33,6 +32,21 @@ impl DownloadBar {
             settings,
             podcast_name,
             longest_podcast_name,
+        }
+    }
+
+    pub fn fetching(&self) {
+        if let Some(pb) = &self.bar {
+            let template = IndicatifSettings::podcast_fetch_template();
+            pb.set_style(ProgressStyle::default_bar().template(&template).unwrap());
+
+            let msg = {
+                let pad_len = self.longest_podcast_name + 2 - self.podcast_name.chars().count();
+                let padding: String = std::iter::repeat(' ').take(pad_len).collect();
+                format!("{}{}", &self.podcast_name, padding)
+            };
+            pb.set_message(msg);
+            pb.enable_steady_tick(self.settings.spinner_speed());
         }
     }
 

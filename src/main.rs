@@ -75,7 +75,7 @@ struct Args {
 impl From<Args> for Action {
     fn from(args: Args) -> Self {
         let filter = args.filter.map(|filter| {
-            let filter = format!("(?i){}", filter);
+            let filter = format!("(?i){}", filter); // Case insensitive
             Regex::new(&filter).unwrap()
         });
 

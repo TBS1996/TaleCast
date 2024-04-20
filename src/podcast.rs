@@ -74,7 +74,7 @@ fn xml_to_value(xml: &str) -> Value {
 
 pub struct Podcasts {
     mp: MultiProgress,
-    podcasts: Vec<Podcast>,
+    podcasts: Vec<PodcastEntry>,
     client: Arc<reqwest::Client>,
     global_config: GlobalConfig,
 }
@@ -99,18 +99,15 @@ impl Podcasts {
         }
     }
     pub async fn add(mut self, configs: PodcastConfigs) -> Self {
-        eprintln!("fetching podcasts...");
         let mut podcasts = vec![];
 
-        for (name, config) in configs.0 {
+        for (name, config) in configs {
             let config = Config::new(&self.global_config, config);
-            let podcast = Podcast::new(name, config, &self.client);
+            let podcast = PodcastEntry::new(name, config);
             podcasts.push(podcast);
         }
 
-        let podcasts = futures::future::join_all(podcasts).await;
         self.podcasts.extend(podcasts);
-
         self.podcasts.sort_by_key(|pod| pod.name.clone());
 
         self
@@ -119,7 +116,7 @@ impl Podcasts {
     fn longest_name(&self) -> Option<usize> {
         self.podcasts
             .iter()
-            .map(|pod| pod.name().chars().count())
+            .map(|pod| pod.name.chars().count())
             .max()
     }
 
@@ -142,7 +139,9 @@ impl Podcasts {
                     longest_name,
                 );
 
-                tokio::task::spawn(async move { podcast.sync(client, ui).await })
+                tokio::task::spawn(async move {
+                    podcast.fetch(&client, &ui).await.sync(&client, &ui).await
+                })
             })
             .collect::<Vec<_>>();
 
@@ -152,6 +151,30 @@ impl Podcasts {
             .filter_map(Result::ok)
             .flatten()
             .collect()
+    }
+}
+
+#[derive(Debug)]
+pub struct PodcastEntry {
+    name: String,
+    config: Config,
+}
+
+impl PodcastEntry {
+    pub fn new(name: String, config: Config) -> Self {
+        Self { name, config }
+    }
+
+    pub async fn fetch(self, client: &reqwest::Client, ui: &DownloadBar) -> Podcast {
+        ui.fetching();
+        let xml_string = utils::download_text(&client, &self.config.url, ui).await;
+        let xml = xml_to_value(&xml_string);
+
+        Podcast {
+            name: self.name,
+            xml,
+            config: self.config,
+        }
     }
 }
 
@@ -207,7 +230,7 @@ impl Podcast {
         utils::val_to_url(inner)
     }
 
-    pub async fn sync(&self, client: Arc<reqwest::Client>, ui: DownloadBar) -> Vec<PathBuf> {
+    pub async fn sync(self, client: &reqwest::Client, ui: &DownloadBar) -> Vec<PathBuf> {
         ui.init();
 
         let episodes = self.pending_episodes();
@@ -242,13 +265,6 @@ impl Podcast {
         let path = PathBuf::from(evaluated);
         fs::create_dir_all(&path).unwrap();
         path.join(episode.partial_name())
-    }
-
-    async fn new(name: String, config: Config, client: &reqwest::Client) -> Self {
-        let xml_string = utils::download_text(&client, &config.url).await;
-        let xml = xml_to_value(&xml_string);
-
-        Self { name, xml, config }
     }
 
     fn episodes(&self) -> Vec<Episode<'_>> {

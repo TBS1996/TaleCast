@@ -290,6 +290,14 @@ impl IndicatifSettings {
         "{spinner:.green} finishing up download hooks...".to_string()
     }
 
+    fn default_podcast_fetch_template() -> String {
+        "{spinner:.green}  {msg} fetching podcast...".to_string()
+    }
+
+    pub fn podcast_fetch_template() -> String {
+        Self::default_podcast_fetch_template()
+    }
+
     pub fn download_template(&self) -> String {
         self.download_bar
             .clone()

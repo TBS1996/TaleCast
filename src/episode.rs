@@ -1,5 +1,5 @@
+use crate::config::Config;
 use crate::config::DownloadMode;
-use crate::config::EvaluatedConfig;
 use crate::display::DownloadBar;
 use crate::download_tracker::DownloadedEpisodes;
 use crate::utils;
@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 #[derive(Debug, Clone)]
 pub struct Episode {
     pub title: String,
-    pub config: EvaluatedConfig,
+    pub config: Config,
     pub url: String,
     pub mime: Option<String>,
     pub guid: String,
@@ -83,12 +83,12 @@ impl Episode {
         self.get_str(&key)
     }
 
-    pub fn should_download(&self, episode_qty: usize) -> bool {
+    pub fn should_download(&self, mode: &DownloadMode, episode_qty: usize) -> bool {
         if self.is_downloaded() {
             return false;
         };
 
-        match &self.config.mode {
+        match mode {
             DownloadMode::Backlog { start, interval } => {
                 let time_passed = utils::current_unix() - *start;
                 let intervals_passed = time_passed.as_secs() / interval.as_secs();

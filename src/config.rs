@@ -88,8 +88,11 @@ fn default_id_pattern() -> String {
     "{guid}".to_string()
 }
 
+/// Full configuration for a specific podcast.
+///
+/// Combines settings from [`GlobalConfig`] and [`PodcastConfig`].
 #[derive(Debug, Clone, Default)]
-pub struct EvaluatedConfig {
+pub struct Config {
     pub url: String,
     pub name_pattern: String,
     pub id_pattern: String,
@@ -99,24 +102,6 @@ pub struct EvaluatedConfig {
     pub symlink: Option<PathBuf>,
     pub id3_tags: HashMap<String, String>,
     pub download_hook: Option<PathBuf>,
-    pub mode: DownloadMode,
-}
-
-/// Full configuration for a specific podcast.
-///
-/// Combines settings from [`GlobalConfig`] and [`PodcastConfig`].
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub url: String,
-    pub name_pattern: FullPattern,
-    pub id_pattern: FullPattern,
-    pub download_path: FullPattern,
-    pub partial_path: Option<FullPattern>,
-    pub tracker_path: FullPattern,
-    pub symlink: Option<FullPattern>,
-    pub id3_tags: HashMap<String, String>,
-    pub download_hook: Option<PathBuf>,
-    pub mode: DownloadMode,
 }
 
 use crate::episode::Episode;
@@ -124,81 +109,13 @@ use crate::patterns::Evaluate;
 use crate::podcast::Podcast;
 
 impl Config {
-    pub fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> EvaluatedConfig {
-        EvaluatedConfig {
-            url: self.url.clone(),
-            name_pattern: self.name_pattern.evaluate(podcast, episode),
-            id_pattern: self.id_pattern.evaluate(podcast, episode),
-            download_path: self.download_path.path_eval(podcast, episode),
-            partial_path: self
-                .partial_path
-                .clone()
-                .map(|p| p.path_eval(podcast, episode)),
-            tracker_path: self.tracker_path.path_eval(podcast, episode),
-            symlink: self.symlink.clone().map(|p| p.path_eval(podcast, episode)),
-            id3_tags: self.id3_tags.clone(),
-            download_hook: self.download_hook.clone(),
-            mode: self.mode.clone(),
-        }
-    }
-
-    pub fn new(global_config: &GlobalConfig, podcast_config: PodcastConfig) -> Self {
-        let mode = match (
-            podcast_config.backlog_start,
-            podcast_config.backlog_interval,
-        ) {
-            (None, None) => DownloadMode::Standard {
-                max_time: podcast_config
-                    .max_days
-                    .into_val(global_config.max_days.as_ref())
-                    .map(|days| Unix::from_secs(days as u64 * 86400)),
-                max_episodes: podcast_config
-                    .max_episodes
-                    .into_val(global_config.max_episodes.as_ref()),
-                earliest_date: {
-                    podcast_config
-                        .earliest_date
-                        .into_val(global_config.earliest_date.as_ref())
-                        .map(|date| utils::date_str_to_unix(&date))
-                },
-            },
-            (Some(_), None) => {
-                eprintln!("missing backlog_interval");
-                std::process::exit(1);
-            }
-            (None, Some(_)) => {
-                eprintln!("missing backlog_start");
-                std::process::exit(1);
-            }
-            (Some(start), Some(interval)) => {
-                if podcast_config.max_days.is_enabled() {
-                    eprintln!("'max_days' not compatible with backlog mode.");
-                    std::process::exit(1);
-                }
-
-                if podcast_config.max_episodes.is_enabled() {
-                    eprintln!("'max_episodes' not compatible with backlog mode.");
-                    eprintln!("If you want to limit the amount of episodes to download, consider changing the 'backlog_start' setting.");
-                    std::process::exit(1);
-                }
-
-                if podcast_config.earliest_date.is_enabled() {
-                    eprintln!("'earliest_date' not compatible with backlog mode.");
-                    std::process::exit(1);
-                }
-
-                let Ok(start) = dateparser::parse(&start) else {
-                    eprintln!("invalid backlog_start format.");
-                    std::process::exit(1);
-                };
-
-                DownloadMode::Backlog {
-                    start: std::time::Duration::from_secs(start.timestamp() as u64),
-                    interval: Unix::from_secs(interval as u64 * 86400),
-                }
-            }
-        };
-
+    pub fn new(
+        global_config: &GlobalConfig,
+        podcast_config: &PodcastConfig,
+        podcast: &Podcast,
+        episode: &Episode,
+    ) -> Self {
+        let podcast_config = podcast_config.to_owned();
         let id3_tags = {
             let mut map = HashMap::with_capacity(
                 global_config.id3_tags.len() + podcast_config.id3_tags.len(),
@@ -264,17 +181,16 @@ impl Config {
             .or(global_config.partial_path.clone())
             .map(|s| FullPattern::from_str(&s));
 
-        Self {
-            url,
-            name_pattern,
-            id_pattern,
-            mode,
-            id3_tags,
-            download_hook,
-            download_path,
-            tracker_path,
-            symlink,
-            partial_path,
+        Config {
+            url: url.clone(),
+            name_pattern: name_pattern.evaluate(podcast, episode),
+            id_pattern: id_pattern.evaluate(podcast, episode),
+            download_path: download_path.path_eval(podcast, episode),
+            partial_path: partial_path.clone().map(|p| p.path_eval(podcast, episode)),
+            tracker_path: tracker_path.path_eval(podcast, episode),
+            symlink: symlink.clone().map(|p| p.path_eval(podcast, episode)),
+            id3_tags: id3_tags.clone(),
+            download_hook: download_hook.clone(),
         }
     }
 }
@@ -515,6 +431,67 @@ pub enum DownloadMode {
     },
 }
 
+impl DownloadMode {
+    pub fn new(global_config: &GlobalConfig, podcast_config: &PodcastConfig) -> Self {
+        match (
+            podcast_config.backlog_start.clone(),
+            podcast_config.backlog_interval.clone(),
+        ) {
+            (None, None) => DownloadMode::Standard {
+                max_time: podcast_config
+                    .max_days
+                    .into_val(global_config.max_days.as_ref())
+                    .map(|days| Unix::from_secs(days as u64 * 86400)),
+                max_episodes: podcast_config
+                    .max_episodes
+                    .into_val(global_config.max_episodes.as_ref()),
+                earliest_date: {
+                    podcast_config
+                        .earliest_date
+                        .clone()
+                        .into_val(global_config.earliest_date.as_ref())
+                        .map(|date| utils::date_str_to_unix(&date))
+                },
+            },
+            (Some(_), None) => {
+                eprintln!("missing backlog_interval");
+                std::process::exit(1);
+            }
+            (None, Some(_)) => {
+                eprintln!("missing backlog_start");
+                std::process::exit(1);
+            }
+            (Some(start), Some(interval)) => {
+                if podcast_config.max_days.is_enabled() {
+                    eprintln!("'max_days' not compatible with backlog mode.");
+                    std::process::exit(1);
+                }
+
+                if podcast_config.max_episodes.is_enabled() {
+                    eprintln!("'max_episodes' not compatible with backlog mode.");
+                    eprintln!("If you want to limit the amount of episodes to download, consider changing the 'backlog_start' setting.");
+                    std::process::exit(1);
+                }
+
+                if podcast_config.earliest_date.is_enabled() {
+                    eprintln!("'earliest_date' not compatible with backlog mode.");
+                    std::process::exit(1);
+                }
+
+                let Ok(start) = dateparser::parse(&start) else {
+                    eprintln!("invalid backlog_start format.");
+                    std::process::exit(1);
+                };
+
+                DownloadMode::Backlog {
+                    start: std::time::Duration::from_secs(start.timestamp() as u64),
+                    interval: Unix::from_secs(interval as u64 * 86400),
+                }
+            }
+        }
+    }
+}
+
 impl Default for DownloadMode {
     fn default() -> Self {
         Self::Standard {
@@ -717,7 +694,7 @@ impl<'a> IntoIterator for &'a PodcastConfigs {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct PodcastConfig {
-    url: String,
+    pub url: String,
     name_pattern: Option<String>,
     id_pattern: Option<String>,
     #[serde(alias = "path")]

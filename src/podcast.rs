@@ -61,12 +61,13 @@ pub struct Podcasts {
     mp: MultiProgress,
     podcasts: Vec<PodcastEntry>,
     client: Arc<reqwest::Client>,
-    global_config: GlobalConfig,
+    global_config: Arc<GlobalConfig>,
 }
 
 impl Podcasts {
     pub fn new(global_config: GlobalConfig) -> Self {
         let mp = MultiProgress::new();
+        let global_config = Arc::new(global_config);
 
         let client = reqwest::Client::builder()
             .user_agent(&global_config.user_agent())
@@ -87,7 +88,6 @@ impl Podcasts {
         let mut podcasts = vec![];
 
         for (name, config) in configs {
-            let config = Config::new(&self.global_config, config);
             let podcast = PodcastEntry::new(name, config);
             podcasts.push(podcast);
         }
@@ -123,9 +123,10 @@ impl Podcasts {
                     &self.mp,
                     longest_name,
                 );
+                let config = Arc::clone(&self.global_config);
 
                 tokio::task::spawn(async move {
-                    let podcast = match podcast.fetch(client, &ui).await {
+                    let podcast = match podcast.fetch(client, &ui, &config).await {
                         Ok(s) => s,
                         Err(e) => {
                             ui.error(&e);
@@ -150,11 +151,13 @@ impl Podcasts {
 #[derive(Debug)]
 pub struct PodcastEntry {
     name: String,
-    config: Config,
+    config: PodcastConfig,
 }
 
+use crate::config::PodcastConfig;
+
 impl PodcastEntry {
-    pub fn new(name: String, config: Config) -> Self {
+    pub fn new(name: String, config: PodcastConfig) -> Self {
         Self { name, config }
     }
 
@@ -162,6 +165,7 @@ impl PodcastEntry {
         self,
         client: Arc<reqwest::Client>,
         ui: &DownloadBar,
+        global_config: &GlobalConfig,
     ) -> Result<Podcast, String> {
         ui.fetching();
         let Some(xml_string) = utils::download_text(&client, &self.config.url, ui).await else {
@@ -177,14 +181,14 @@ impl PodcastEntry {
             xml: channel,
             episodes: vec![],
             client,
-            mode: self.config.mode.clone(),
+            mode: DownloadMode::new(global_config, &self.config),
         };
 
         let mut episodes = vec![];
 
         for item in items {
             if let Some(mut ep) = Episode::new(item) {
-                let config = self.config.evaluate(&podcast, &ep);
+                let config = Config::new(global_config, &self.config, &podcast, &ep);
                 ep.config = config;
                 episodes.push(ep);
             }
@@ -306,7 +310,7 @@ impl Podcast {
         let mut pending: Vec<&Episode> = self
             .episodes
             .iter()
-            .filter(|episode| episode.should_download(qty))
+            .filter(|episode| episode.should_download(&self.mode, qty))
             .collect();
 
         // In backlog mode it makes more sense to download earliest episode first.

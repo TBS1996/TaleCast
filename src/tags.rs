@@ -23,8 +23,8 @@ fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
 
 use crate::podcast::Podcast;
 pub async fn set_mp3_tags<'a>(
-    podcast: &'a Podcast,
-    episode: &'a DownloadedEpisode<'a>,
+    podcast: &Podcast,
+    episode: &DownloadedEpisode<'a>,
     custom_tags: &HashMap<String, String>,
 ) -> id3::Tag {
     let file_path = &episode.path();
@@ -37,7 +37,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.title().is_none() {
-        tags.set_title(episode.title);
+        tags.set_title(&episode.title);
     }
 
     if tags.artist().is_none() {
@@ -139,7 +139,7 @@ pub async fn set_mp3_tags<'a>(
     }
 
     if tags.get(Id3Tag::PODCAST_ID).is_none() {
-        tags.set_text(Id3Tag::PODCAST_ID, episode.guid);
+        tags.set_text(Id3Tag::PODCAST_ID, &episode.guid);
     }
 
     tags.write_to_path(file_path, id3::Version::Id3v24).unwrap();

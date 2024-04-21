@@ -4,24 +4,29 @@ use std::path::PathBuf;
 use std::time;
 
 #[derive(Debug, Clone)]
-pub struct Episode<'a> {
-    pub title: &'a str,
-    pub url: &'a str,
-    pub mime: Option<&'a str>,
-    pub guid: &'a str,
+pub struct Episode {
+    pub title: String,
+    pub url: String,
+    pub mime: Option<String>,
+    pub guid: String,
     pub published: time::Duration,
     pub index: usize,
-    pub raw: &'a serde_json::Map<String, serde_json::Value>,
+    pub raw: serde_json::Map<String, serde_json::Value>,
 }
 
-impl<'a> Episode<'a> {
-    pub fn new(raw: &'a serde_json::Map<String, serde_json::Value>) -> Option<Self> {
-        let title = raw.get("title").unwrap().as_str().unwrap();
-        let enclosure = raw.get("enclosure").unwrap();
-        let url = enclosure.get("@url").and_then(|x| x.as_str()).unwrap();
-        let mime = enclosure.get("@type").and_then(|x| x.as_str());
-        let published = utils::date_str_to_unix(raw.get("pubDate").unwrap().as_str().unwrap());
-        let guid = utils::val_to_str(raw.get("guid")?)?;
+impl Episode {
+    pub fn new(raw: serde_json::Map<String, serde_json::Value>) -> Option<Self> {
+        let title = raw.get("title")?.as_str()?.to_string();
+        let enclosure = raw.get("enclosure")?;
+        let url = enclosure
+            .get("@url")
+            .and_then(|x| Some(x.as_str()?.to_string()))?;
+
+        let mime = enclosure
+            .get("@type")
+            .and_then(|x| Some(x.as_str()?.to_string()));
+        let published = utils::date_str_to_unix(raw.get("pubDate")?.as_str()?);
+        let guid = utils::val_to_str(raw.get("guid")?)?.to_string();
         let index = 0;
 
         Self {
@@ -72,16 +77,16 @@ impl<'a> Episode<'a> {
 }
 
 pub struct DownloadedEpisode<'a> {
-    inner: Episode<'a>,
+    inner: &'a Episode,
     path: PathBuf,
 }
 
 impl<'a> DownloadedEpisode<'a> {
-    pub fn new(inner: Episode<'a>, path: PathBuf) -> DownloadedEpisode<'a> {
+    pub fn new(inner: &'a Episode, path: PathBuf) -> DownloadedEpisode<'a> {
         Self { inner, path }
     }
 
-    pub fn inner(&self) -> &Episode<'a> {
+    pub fn inner(&self) -> &Episode {
         &self.inner
     }
 
@@ -110,8 +115,8 @@ impl<'a> DownloadedEpisode<'a> {
     }
 }
 
-impl<'a> AsRef<Episode<'a>> for DownloadedEpisode<'a> {
-    fn as_ref(&self) -> &Episode<'a> {
+impl AsRef<Episode> for DownloadedEpisode<'_> {
+    fn as_ref(&self) -> &Episode {
         &self.inner
     }
 }

@@ -168,12 +168,31 @@ impl PodcastEntry {
     pub async fn fetch(self, client: &reqwest::Client, ui: &DownloadBar) -> Podcast {
         ui.fetching();
         let xml_string = utils::download_text(&client, &self.config.url, ui).await;
-        let xml = xml_to_value(&xml_string);
+        let mut xml = xml_to_value(&xml_string);
+        let mut items = std::mem::take(xml.get_mut("item").unwrap().as_array_mut().unwrap());
+
+        let mut episodes = vec![];
+
+        for item in items.iter_mut() {
+            let item = std::mem::take(item.as_object_mut().unwrap());
+            if let Some(ep) = Episode::new(item) {
+                episodes.push(ep);
+            }
+        }
+
+        episodes.sort_by_key(|episode| episode.published);
+
+        let mut index = 0;
+        for episode in &mut episodes {
+            episode.index = index;
+            index += 1;
+        }
 
         Podcast {
             name: self.name,
             xml,
             config: self.config,
+            episodes,
         }
     }
 }
@@ -183,6 +202,7 @@ pub struct Podcast {
     name: String, // The configured name in `podcasts.toml`.
     xml: serde_json::Value,
     config: Config,
+    episodes: Vec<Episode>,
 }
 
 impl Podcast {
@@ -260,14 +280,14 @@ impl Podcast {
             .collect()
     }
 
-    fn download_path(&self, episode: &Episode<'_>) -> PathBuf {
+    fn download_path(&self, episode: &Episode) -> PathBuf {
         let evaluated = self.config.download_path.evaluate(self, episode);
         let path = PathBuf::from(evaluated);
         utils::create_dir(&path);
         path.join(episode.partial_name())
     }
 
-    fn partial_path(&self, episode: &Episode<'_>) -> PathBuf {
+    fn partial_path(&self, episode: &Episode) -> PathBuf {
         match self.config().partial_path.as_ref() {
             Some(p) => {
                 let p = p.evaluate(self, episode);
@@ -277,34 +297,6 @@ impl Podcast {
             }
             None => self.download_path(episode),
         }
-    }
-
-    fn episodes(&self) -> Vec<Episode<'_>> {
-        let mut vec = vec![];
-
-        let raw_items = self
-            .xml
-            .get("item")
-            .expect("items not found")
-            .as_array()
-            .unwrap();
-
-        for item in raw_items {
-            let item = item.as_object().unwrap();
-            if let Some(episode) = Episode::new(item) {
-                vec.push(episode);
-            }
-        }
-
-        vec.sort_by_key(|episode| episode.published);
-
-        let mut index = 0;
-        for episode in &mut vec {
-            episode.index = index;
-            index += 1;
-        }
-
-        vec
     }
 
     pub fn get_text_attribute(&self, key: &str) -> Option<&str> {
@@ -320,7 +312,7 @@ impl Podcast {
         downloaded.contains_episode(&id)
     }
 
-    fn should_download(&self, episode: &Episode, latest_episode: usize) -> bool {
+    fn should_download(&self, episode: &Episode) -> bool {
         if self.is_episode_downloaded(episode) {
             return false;
         };
@@ -342,7 +334,7 @@ impl Podcast {
                 });
 
                 let max_episodes_exceeded = max_episodes.map_or(false, |max_episodes| {
-                    (latest_episode - max_episodes as usize) > episode.index
+                    (self.episodes.len() - max_episodes as usize) > episode.index
                 });
 
                 let episode_too_old = earliest_date.map_or(false, |date| date > episode.published);
@@ -370,35 +362,33 @@ impl Podcast {
         PathBuf::from(&path)
     }
 
-    fn pending_episodes(&self) -> Vec<Episode<'_>> {
-        let mut episodes = self.episodes();
-        let episode_qty = episodes.len();
-
-        episodes = episodes
-            .into_iter()
-            .filter(|episode| self.should_download(episode, episode_qty))
+    fn pending_episodes(&self) -> Vec<&Episode> {
+        let mut pending: Vec<&Episode> = self
+            .episodes
+            .iter()
+            .filter(|episode| self.should_download(episode))
             .collect();
 
         // In backlog mode it makes more sense to download earliest episode first.
         // in standard mode, the most recent episodes are more relevant.
         match self.config.mode {
             DownloadMode::Backlog { .. } => {
-                episodes.sort_by_key(|ep| ep.index);
+                pending.sort_by_key(|ep| ep.index);
             }
             DownloadMode::Standard { .. } => {
-                episodes.sort_by_key(|ep| ep.index);
-                episodes.reverse();
+                pending.sort_by_key(|ep| ep.index);
+                pending.reverse();
             }
         }
 
-        episodes
+        pending
     }
 
     pub async fn download_episode<'a>(
         &self,
         client: &reqwest::Client,
         ui: &DownloadBar,
-        episode: Episode<'a>,
+        episode: &'a Episode,
     ) -> DownloadedEpisode<'a> {
         let partial_path = self.partial_path(&episode);
 
@@ -411,7 +401,7 @@ impl Podcast {
         let mut downloaded = file.seek(io::SeekFrom::End(0)).unwrap();
 
         let response = client
-            .get(episode.url)
+            .get(&episode.url)
             .header(reqwest::header::RANGE, format!("bytes={}-", downloaded))
             .send()
             .await;

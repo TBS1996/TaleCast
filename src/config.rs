@@ -97,6 +97,7 @@ pub struct Config {
     pub name_pattern: FullPattern,
     pub id_pattern: FullPattern,
     pub download_path: FullPattern,
+    pub partial_path: Option<FullPattern>,
     pub tracker_path: FullPattern,
     pub symlink: Option<FullPattern>,
     pub id3_tags: HashMap<String, String>,
@@ -222,6 +223,11 @@ impl Config {
             .or(global_config.symlink.clone())
             .map(|str| FullPattern::from_str(&str));
 
+        let partial_path = podcast_config
+            .partial_path
+            .or(global_config.partial_path.clone())
+            .map(|s| FullPattern::from_str(&s));
+
         Self {
             url,
             name_pattern,
@@ -232,6 +238,7 @@ impl Config {
             download_path,
             tracker_path,
             symlink,
+            partial_path,
         }
     }
 }
@@ -335,6 +342,7 @@ impl IndicatifSettings {
 pub struct GlobalConfig {
     #[serde(default = "default_download_path", alias = "path")]
     download_path: String,
+    partial_path: Option<String>,
     #[serde(default = "default_name_pattern")]
     name_pattern: String,
     #[serde(default = "default_id_pattern")]
@@ -445,6 +453,7 @@ impl Default for GlobalConfig {
             search: Default::default(),
             symlink: None,
             user_agent: None,
+            partial_path: None,
         }
     }
 }
@@ -659,6 +668,7 @@ pub struct PodcastConfig {
     id_pattern: Option<String>,
     #[serde(alias = "path")]
     download_path: Option<String>,
+    partial_path: Option<String>,
     backlog_start: Option<String>,
     backlog_interval: Option<i64>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -687,6 +697,7 @@ impl PodcastConfig {
             download_hook: Default::default(),
             tracker_path: Default::default(),
             symlink: Default::default(),
+            partial_path: Default::default(),
         }
     }
 

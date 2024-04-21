@@ -263,8 +263,20 @@ impl Podcast {
     fn download_path(&self, episode: &Episode<'_>) -> PathBuf {
         let evaluated = self.config.download_path.evaluate(self, episode);
         let path = PathBuf::from(evaluated);
-        fs::create_dir_all(&path).unwrap();
+        utils::create_dir(&path);
         path.join(episode.partial_name())
+    }
+
+    fn partial_path(&self, episode: &Episode<'_>) -> PathBuf {
+        match self.config().partial_path.as_ref() {
+            Some(p) => {
+                let p = p.evaluate(self, episode);
+                let path = PathBuf::from(p);
+                utils::create_dir(&path);
+                path.join(episode.partial_name())
+            }
+            None => self.download_path(episode),
+        }
     }
 
     fn episodes(&self) -> Vec<Episode<'_>> {
@@ -388,7 +400,7 @@ impl Podcast {
         ui: &DownloadBar,
         episode: Episode<'a>,
     ) -> DownloadedEpisode<'a> {
-        let partial_path = self.download_path(&episode);
+        let partial_path = self.partial_path(&episode);
 
         let mut file = fs::OpenOptions::new()
             .write(true)
@@ -421,7 +433,7 @@ impl Podcast {
         }
 
         let path = {
-            let mut path = partial_path.clone();
+            let mut path = self.download_path(&episode).clone();
             path.set_extension(extension);
             path
         };

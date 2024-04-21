@@ -1,5 +1,6 @@
 use crate::config;
 use crate::episode::Episode;
+use crate::utils;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
@@ -35,7 +36,7 @@ pub fn config_dir() -> PathBuf {
     }
     .join(crate::APPNAME);
 
-    std::fs::create_dir_all(&path).unwrap();
+    utils::create_dir(&path);
 
     path
 }
@@ -47,7 +48,7 @@ pub fn cache_dir() -> PathBuf {
     }
     .join(crate::APPNAME);
 
-    std::fs::create_dir_all(&path).unwrap();
+    utils::create_dir(&path);
 
     path
 }
@@ -58,9 +59,9 @@ pub fn current_unix() -> Unix {
 }
 
 pub fn default_download_path() -> PathBuf {
-    let p = dirs::home_dir().unwrap().join(crate::APPNAME);
-    std::fs::create_dir_all(&p).unwrap();
-    p
+    let path = dirs::home_dir().unwrap().join(crate::APPNAME);
+    utils::create_dir(&path);
+    path
 }
 
 pub fn truncate_string(s: &str, max_width: usize, append_dots: bool) -> String {
@@ -421,4 +422,12 @@ pub fn append_to_config(file_path: &Path, key: &str, value: &str) -> io::Result<
     file.write_all(line.as_bytes())?;
 
     Ok(())
+}
+
+pub fn create_dir(path: &Path) {
+    if let Err(e) = fs::create_dir_all(path) {
+        eprintln!("failed to create following directory: {:?}", path);
+        eprintln!("error: {:?}", e);
+        process::exit(1);
+    }
 }

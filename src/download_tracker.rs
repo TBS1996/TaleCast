@@ -14,7 +14,7 @@ impl DownloadedEpisodes {
     }
 
     pub fn load(path: &Path) -> Self {
-        let s = match std::fs::read_to_string(path) {
+        let s = match fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Self::default();
@@ -43,10 +43,10 @@ impl DownloadedEpisodes {
         }
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(&parent).unwrap();
+            utils::create_dir(&parent)
         }
 
-        let mut file = std::fs::OpenOptions::new()
+        let mut file = fs::OpenOptions::new()
             .append(true)
             .create(true)
             .open(path)

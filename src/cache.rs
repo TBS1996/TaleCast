@@ -4,6 +4,27 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::path::PathBuf;
 
+struct MimeMap;
+
+impl MimeMap {
+    fn get_mime(url: &str) -> Option<String> {
+        let hashed = hashed_url(url);
+        let path = Self::path();
+        utils::get_file_map_val(&path, &hashed)
+    }
+
+    fn append(url: &str, mime: &str) -> Option<()> {
+        let path = Self::path();
+        let hashed = hashed_url(url);
+        utils::append_to_config(&path, &hashed, &mime).ok()?;
+        Some(())
+    }
+
+    fn path() -> PathBuf {
+        utils::cache_dir().join("mime_types")
+    }
+}
+
 fn read_file_to_vec(path: &Path) -> io::Result<Vec<u8>> {
     let mut file = fs::File::open(path)?;
     let mut data = Vec::new();
@@ -25,11 +46,11 @@ fn cached_image(url: &str) -> Option<Vec<u8>> {
     read_file_to_vec(&path).ok()
 }
 
-async fn write_image(url: &str) {
+async fn write_image(url: &str) -> Option<()> {
     use std::io::Write;
 
     let hashed = hashed_url(url);
-    let response = reqwest::get(url).await.unwrap();
+    let response = reqwest::get(url).await.ok()?;
     if response.status().is_success() {
         let mime_type = response
             .headers()
@@ -39,21 +60,11 @@ async fn write_image(url: &str) {
             .to_string();
         let data = response.bytes().await.unwrap().to_vec();
         let path = utils::cache_dir().join(&hashed);
-        let mut file = fs::File::create(&path).unwrap();
-        file.write_all(&data).unwrap();
-        let mime_path = mime_types_path();
-        utils::append_to_config(&mime_path, &hashed, &mime_type).unwrap();
+        let mut file = fs::File::create(&path).ok()?;
+        file.write_all(&data).ok()?;
+        MimeMap::append(url, &mime_type)?;
     }
-}
-
-fn mime_types_path() -> PathBuf {
-    utils::cache_dir().join("mime_types")
-}
-
-fn get_mime_type(url: &str) -> Option<String> {
-    let hashed = hashed_url(url);
-    let path = mime_types_path();
-    utils::get_file_map_val(&path, &hashed)
+    Some(())
 }
 
 pub async fn get_image(
@@ -63,12 +74,12 @@ pub async fn get_image(
     let data = match cached_image(url) {
         Some(data) => data,
         None => {
-            write_image(url).await;
+            write_image(url).await?;
             cached_image(url)?
         }
     };
 
-    let mime_type = get_mime_type(url)?;
+    let mime_type = MimeMap::get_mime(url)?;
 
     let pic = id3::frame::Picture {
         data,

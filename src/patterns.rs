@@ -207,9 +207,15 @@ fn home() -> String {
         .unwrap()
         .to_owned()
 }
+use std::path::PathBuf;
 
 pub trait Evaluate {
     fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String;
+
+    fn path_eval(&self, podcast: &Podcast, episode: &Episode) -> PathBuf {
+        let s = self.evaluate(podcast, episode);
+        PathBuf::from(s)
+    }
 }
 
 impl Evaluate for FullPattern {

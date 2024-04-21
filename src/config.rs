@@ -88,6 +88,20 @@ fn default_id_pattern() -> String {
     "{guid}".to_string()
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct EvaluatedConfig {
+    pub url: String,
+    pub name_pattern: String,
+    pub id_pattern: String,
+    pub download_path: PathBuf,
+    pub partial_path: Option<PathBuf>,
+    pub tracker_path: PathBuf,
+    pub symlink: Option<PathBuf>,
+    pub id3_tags: HashMap<String, String>,
+    pub download_hook: Option<PathBuf>,
+    pub mode: DownloadMode,
+}
+
 /// Full configuration for a specific podcast.
 ///
 /// Combines settings from [`GlobalConfig`] and [`PodcastConfig`].
@@ -105,7 +119,29 @@ pub struct Config {
     pub mode: DownloadMode,
 }
 
+use crate::episode::Episode;
+use crate::patterns::Evaluate;
+use crate::podcast::Podcast;
+
 impl Config {
+    pub fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> EvaluatedConfig {
+        EvaluatedConfig {
+            url: self.url.clone(),
+            name_pattern: self.name_pattern.evaluate(podcast, episode),
+            id_pattern: self.id_pattern.evaluate(podcast, episode),
+            download_path: self.download_path.path_eval(podcast, episode),
+            partial_path: self
+                .partial_path
+                .clone()
+                .map(|p| p.path_eval(podcast, episode)),
+            tracker_path: self.tracker_path.path_eval(podcast, episode),
+            symlink: self.symlink.clone().map(|p| p.path_eval(podcast, episode)),
+            id3_tags: self.id3_tags.clone(),
+            download_hook: self.download_hook.clone(),
+            mode: self.mode.clone(),
+        }
+    }
+
     pub fn new(global_config: &GlobalConfig, podcast_config: PodcastConfig) -> Self {
         let mode = match (
             podcast_config.backlog_start,
@@ -477,6 +513,16 @@ pub enum DownloadMode {
         start: Unix,
         interval: Unix,
     },
+}
+
+impl Default for DownloadMode {
+    fn default() -> Self {
+        Self::Standard {
+            max_time: None,
+            earliest_date: None,
+            max_episodes: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

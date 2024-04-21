@@ -40,6 +40,7 @@ impl DownloadedEpisodes {
         if path.is_dir() {
             eprintln!("error: invalid download tracker path: {:?}", path);
             eprintln!("download tracker cannot point to a directory");
+            std::process::exit(1);
         }
 
         if let Some(parent) = path.parent() {

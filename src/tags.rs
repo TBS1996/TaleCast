@@ -3,7 +3,6 @@ use crate::episode::DownloadedEpisode;
 use chrono::Datelike;
 use id3::frame::PictureType;
 use id3::TagLike;
-use std::collections::HashMap;
 
 struct Id3Tag;
 
@@ -22,11 +21,8 @@ fn has_picture_type(tag: &id3::Tag, ty: id3::frame::PictureType) -> bool {
 }
 
 use crate::podcast::Podcast;
-pub async fn set_mp3_tags<'a>(
-    podcast: &Podcast,
-    episode: &DownloadedEpisode<'a>,
-    custom_tags: &HashMap<String, String>,
-) -> id3::Tag {
+pub async fn set_mp3_tags<'a>(podcast: &Podcast, episode: &DownloadedEpisode<'a>) -> id3::Tag {
+    let custom_tags = &episode.inner().config.id3_tags;
     let file_path = &episode.path();
     let episode = &episode.inner();
 

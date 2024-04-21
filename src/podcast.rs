@@ -175,16 +175,16 @@ impl PodcastEntry {
         let mut podcast = Podcast {
             name: self.name,
             xml: channel,
-            config: self.config,
             episodes: vec![],
             client,
+            mode: self.config.mode.clone(),
         };
 
         let mut episodes = vec![];
 
         for item in items {
             if let Some(mut ep) = Episode::new(item) {
-                let config = podcast.config.evaluate(&podcast, &ep);
+                let config = self.config.evaluate(&podcast, &ep);
                 ep.config = config;
                 episodes.push(ep);
             }
@@ -208,9 +208,9 @@ impl PodcastEntry {
 pub struct Podcast {
     name: String, // The configured name in `podcasts.toml`.
     xml: serde_json::Value,
-    config: Config,
     episodes: Vec<Episode>,
     client: Arc<reqwest::Client>,
+    mode: DownloadMode,
 }
 
 impl Podcast {
@@ -311,7 +311,7 @@ impl Podcast {
 
         // In backlog mode it makes more sense to download earliest episode first.
         // in standard mode, the most recent episodes are more relevant.
-        match self.config.mode {
+        match self.mode {
             DownloadMode::Backlog { .. } => {
                 pending.sort_by_key(|ep| ep.index);
             }
@@ -326,7 +326,7 @@ impl Podcast {
 
     async fn set_mp3_tags(&self, episode: &mut DownloadedEpisode<'_>) -> Result<(), String> {
         if episode.path().extension().is_some_and(|ext| ext == "mp3") {
-            tags::set_mp3_tags(&self, episode, &self.config.id3_tags).await;
+            tags::set_mp3_tags(&self, episode).await;
         };
 
         Ok(())

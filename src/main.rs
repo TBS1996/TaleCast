@@ -48,7 +48,7 @@ struct Args {
         help = "Configure to skip episodes published prior to current time. Can be combined with filter, add, and import"
     )]
     catch_up: bool,
-    #[arg(short, long, num_args = 2, value_names = &["URL", "NAME"], help = "Add new podcast")]
+    #[arg(short, long, num_args = 1..=2, value_names = &["URL", "NAME"], help = "Add new podcast")]
     add: Vec<String>,
     #[arg(
         short,
@@ -119,9 +119,8 @@ impl From<Args> for Action {
         }
 
         if !args.add.is_empty() {
-            assert_eq!(args.add.len(), 2);
             let url = args.add[0].to_string();
-            let name = args.add[1].to_string();
+            let name = args.add.get(1).cloned();
 
             return Self::Add {
                 url,
@@ -162,7 +161,7 @@ enum Action {
     },
     Add {
         url: String,
-        name: String,
+        name: Option<String>,
         catch_up: bool,
     },
     Search {
@@ -207,6 +206,14 @@ async fn main() {
             url,
             catch_up,
         } => {
+            let name = match name {
+                Some(name) => name,
+                None => match utils::get_input(Some("enter name of podcast: ")) {
+                    Some(name) => name,
+                    None => return,
+                },
+            };
+
             let podcast = config::PodcastConfig::new(url);
 
             if config::PodcastConfigs::push(name.clone(), podcast) {

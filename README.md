@@ -96,6 +96,7 @@ The way configuration works is that you can set a 'global value' that applies to
 | name_pattern     | Pattern determining the name of episode files                | Yes      | ✅          | ✅     | `"{pubdate::%Y-%m-%d} {rss::episode::title}"` |
 | id_pattern       | Episode ID for determining if an episode has been downloaded | Yes      | ✅          | ✅     | `"{guid}"`                                    |
 | download_hook    | Path to script that will run after an episode is downloaded  | No       | ✅          | ✅     | `None`                                        |
+| partial_path     | The path where partially downloaded episodes are stored      | No       | ✅          | ✅     | `download_path`                               |
 | tracker_path     | Path to textfile that tracks downloaded episodes             | No       | ✅          | ✅     | `download_path/.downloaded`                   |
 | max_days         | Episodes older than this won't be downloaded                 | No       | ✅          | ✅     | `None`                                        |
 | max_episodes     | Only this number of past episodes will be downloaded         | No       | ✅          | ✅     | `None`                                        |

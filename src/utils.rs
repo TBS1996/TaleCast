@@ -203,6 +203,22 @@ pub fn replacer(val: Value, input: &str) -> String {
     output
 }
 
+pub fn get_input(prompt: Option<&str>) -> Option<String> {
+    if let Some(prompt) = prompt {
+        eprint!("{}", prompt);
+    }
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+    let input = input.trim();
+
+    if input.is_empty() {
+        None
+    } else {
+        Some(input.to_string())
+    }
+}
+
 pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch_up: bool) {
     let response = search(&query).await;
     let mut results = vec![];
@@ -229,13 +245,9 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
         println!("{}", line);
     }
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let input = input.trim();
-
-    if input.is_empty() {
+    let Some(input) = get_input(None) else {
         return;
-    }
+    };
 
     let mut indices = vec![];
     for input in input.split(" ") {

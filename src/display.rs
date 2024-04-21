@@ -35,16 +35,22 @@ impl DownloadBar {
         }
     }
 
+    fn prefix(&self) -> String {
+        let pad_len = self.longest_podcast_name + 2 - self.podcast_name.chars().count();
+        let padding: String = std::iter::repeat(' ').take(pad_len).collect();
+        format!("{}{}", &self.podcast_name, padding)
+    }
+
+    fn msg_with_prefix(&self, msg: &str) -> String {
+        format!("{}{}", self.prefix(), msg)
+    }
+
     pub fn fetching(&self) {
         if let Some(pb) = &self.bar {
             let template = IndicatifSettings::podcast_fetch_template();
             pb.set_style(ProgressStyle::default_bar().template(&template).unwrap());
 
-            let msg = {
-                let pad_len = self.longest_podcast_name + 2 - self.podcast_name.chars().count();
-                let padding: String = std::iter::repeat(' ').take(pad_len).collect();
-                format!("{}{}", &self.podcast_name, padding)
-            };
+            let msg = self.prefix();
             pb.set_message(msg);
             pb.enable_steady_tick(self.settings.spinner_speed());
         }
@@ -101,6 +107,15 @@ impl DownloadBar {
     pub fn set_progress(&self, progress: u64) {
         if let Some(pb) = &self.bar {
             pb.set_position(progress);
+        }
+    }
+
+    pub fn error(&self, msg: &str) {
+        if let Some(pb) = &self.bar {
+            let template = self.settings.error_template();
+            self.set_template(&template);
+            let msg = self.msg_with_prefix(msg);
+            pb.finish_with_message(msg);
         }
     }
 

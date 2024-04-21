@@ -26,18 +26,17 @@ use std::sync::Arc;
 /// The library will merge different namespaces together, which is why we manually change
 /// the itunes namespace, and then after converting it, we change it back. Preserving itunes:XXX as
 /// separate keys.
-fn xml_to_value(xml: &str) -> Value {
+fn xml_to_value(xml: &str) -> Option<(Value, Vec<Map<String, Value>>)> {
     let placeholder = "__placeholder__";
     let replacement = format!("itunes{}", placeholder);
     let xml = xml.replace("itunes:", &replacement);
     let conf = XmlConfig::new_with_defaults();
-    let val = xml_string_to_json(xml.to_string(), &conf)
-        .unwrap()
-        .get("rss")
-        .unwrap()
-        .get("channel")
-        .unwrap()
-        .clone();
+    let mut val = std::mem::take(
+        xml_string_to_json(xml.to_string(), &conf)
+            .ok()?
+            .get_mut("rss")?
+            .get_mut("channel")?,
+    );
 
     // Create a new map to store the transformed keys at the top level
     let mut new_map: Map<String, Value> = Map::new();
@@ -49,13 +48,9 @@ fn xml_to_value(xml: &str) -> Value {
         }
     }
 
-    let items = val
-        .as_object()
-        .unwrap()
-        .get("item")
-        .unwrap()
-        .as_array()
-        .unwrap()
+    let items = std::mem::take(val.as_object_mut()?.get_mut("item")?.as_array_mut()?);
+
+    let items = items
         .iter()
         .map(|item| {
             let mut new_item_map: Map<String, Value> = Map::new();
@@ -63,13 +58,11 @@ fn xml_to_value(xml: &str) -> Value {
                 let new_key = key.replace(&replacement, "itunes:");
                 new_item_map.insert(new_key, val.clone());
             }
-            Value::Object(new_item_map)
+            new_item_map
         })
-        .collect::<Vec<Value>>();
+        .collect::<Vec<Map<String, Value>>>();
 
-    new_map.insert("items".to_string(), Value::Array(items));
-
-    Value::Object(new_map)
+    Some((Value::Object(new_map), items))
 }
 
 pub struct Podcasts {
@@ -140,7 +133,15 @@ impl Podcasts {
                 );
 
                 tokio::task::spawn(async move {
-                    podcast.fetch(&client, &ui).await.sync(&client, &ui).await
+                    let podcast = match podcast.fetch(&client, &ui).await {
+                        Ok(s) => s,
+                        Err(s) => {
+                            ui.error(&s);
+                            return vec![];
+                        }
+                    };
+
+                    podcast.sync(&client, &ui).await
                 })
             })
             .collect::<Vec<_>>();
@@ -165,16 +166,23 @@ impl PodcastEntry {
         Self { name, config }
     }
 
-    pub async fn fetch(self, client: &reqwest::Client, ui: &DownloadBar) -> Podcast {
+    pub async fn fetch(
+        self,
+        client: &reqwest::Client,
+        ui: &DownloadBar,
+    ) -> Result<Podcast, String> {
         ui.fetching();
-        let xml_string = utils::download_text(&client, &self.config.url, ui).await;
-        let mut xml = xml_to_value(&xml_string);
-        let mut items = std::mem::take(xml.get_mut("item").unwrap().as_array_mut().unwrap());
+        let Some(xml_string) = utils::download_text(&client, &self.config.url, ui).await else {
+            return Err("failed to download xml-file".to_string());
+        };
+
+        let Some((channel, items)) = xml_to_value(&xml_string) else {
+            return Err("failed to parse xml".to_string());
+        };
 
         let mut episodes = vec![];
 
-        for item in items.iter_mut() {
-            let item = std::mem::take(item.as_object_mut().unwrap());
+        for item in items {
             if let Some(ep) = Episode::new(item) {
                 episodes.push(ep);
             }
@@ -188,12 +196,12 @@ impl PodcastEntry {
             index += 1;
         }
 
-        Podcast {
+        Ok(Podcast {
             name: self.name,
-            xml,
+            xml: channel,
             config: self.config,
             episodes,
-        }
+        })
     }
 }
 

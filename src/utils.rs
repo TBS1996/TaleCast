@@ -124,9 +124,12 @@ pub fn handle_response(response: Result<reqwest::Response, reqwest::Error>) -> r
 use crate::display::DownloadBar;
 use futures_util::StreamExt;
 
-pub async fn download_text(client: &reqwest::Client, url: &str, ui: &DownloadBar) -> String {
-    let response = client.get(url).send().await;
-    let response = handle_response(response);
+pub async fn download_text(
+    client: &reqwest::Client,
+    url: &str,
+    ui: &DownloadBar,
+) -> Option<String> {
+    let response = client.get(url).send().await.ok()?;
 
     let total_size = response.content_length().unwrap_or(0);
 
@@ -136,13 +139,13 @@ pub async fn download_text(client: &reqwest::Client, url: &str, ui: &DownloadBar
     ui.init_download_bar(downloaded, total_size);
     let mut buffer: Vec<u8> = vec![];
     while let Some(item) = stream.next().await {
-        let chunk = item.unwrap();
+        let chunk = item.ok()?;
         buffer.extend(&chunk);
         downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
         ui.set_progress(downloaded);
     }
 
-    String::from_utf8(buffer).unwrap()
+    String::from_utf8(buffer).ok()
 }
 
 pub fn edit_file(path: &Path) {

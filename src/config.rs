@@ -293,12 +293,16 @@ impl IndicatifSettings {
         "✅ {msg}".to_owned()
     }
 
+    fn default_error_template() -> String {
+        "❌ {msg}".to_owned()
+    }
+
     fn default_hooks() -> String {
         "{spinner:.green} finishing up download hooks...".to_string()
     }
 
     fn default_podcast_fetch_template() -> String {
-        "{spinner:.green}  {msg} fetching podcast...".to_string()
+        "{spinner:.green}  {msg}fetching podcast...".to_string()
     }
 
     pub fn podcast_fetch_template() -> String {
@@ -315,6 +319,10 @@ impl IndicatifSettings {
         self.completed
             .clone()
             .unwrap_or_else(IndicatifSettings::default_complete_template)
+    }
+
+    pub fn error_template(&self) -> String {
+        Self::default_error_template()
     }
 
     pub fn hook_template(&self) -> String {

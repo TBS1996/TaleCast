@@ -211,7 +211,7 @@ impl Podcast {
     pub fn categories(&self) -> Vec<&str> {
         let key = "itunes:category";
         match self.xml.get(&key).and_then(|x| x.as_array()) {
-            Some(v) => v.iter().map(|x| x.as_str().unwrap()).collect(),
+            Some(v) => v.iter().filter_map(utils::val_to_str).collect(),
             None => vec![],
         }
     }

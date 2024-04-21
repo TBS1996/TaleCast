@@ -68,7 +68,7 @@ pub async fn get_image(
         }
     };
 
-    let mime_type = get_mime_type(url).unwrap();
+    let mime_type = get_mime_type(url)?;
 
     let pic = id3::frame::Picture {
         data,

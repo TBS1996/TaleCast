@@ -223,7 +223,7 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
     eprintln!("Enter index of podcast to add");
     for (idx, res) in results.iter().enumerate() {
         let line = replacer(res.clone(), &config.search.pattern());
-        let line = format!("{}: {}", idx, line);
+        let line = format!("{}: {}", idx + 1, line);
         let line = truncate_string(&line, config.max_line_width(), true);
         println!("{}", line);
     }
@@ -256,8 +256,10 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
 
     let mut regex_parts = vec![];
     for index in indices {
+        let name = results[index].get("collectionName").unwrap().to_string();
         let url = results[index].get("feedUrl").unwrap().to_string();
-        let name = results[index].get("artistName").unwrap().to_string();
+        let name = trim_quotes(&name);
+        let url = trim_quotes(&url);
 
         let podcast = config::PodcastConfig::new(url);
 
@@ -276,6 +278,12 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
         let filter = Regex::new(&regex).unwrap();
         config::PodcastConfigs::catch_up(Some(filter));
     }
+}
+
+pub fn trim_quotes(s: &str) -> String {
+    let s = s.trim_end_matches("\"");
+    let s = s.trim_start_matches("\"");
+    s.to_string()
 }
 
 pub fn date_str_to_unix(date: &str) -> time::Duration {
@@ -343,7 +351,12 @@ pub fn val_to_str<'a>(val: &'a serde_json::Value) -> Option<&'a str> {
         return Some(val);
     }
 
-    val.as_object()?.get("#text")?.as_str()
+    let obj = val.as_object()?;
+
+    if let Some(text) = obj.get("@text") {
+        return text.as_str();
+    }
+    obj.get("#text")?.as_str()
 }
 
 pub fn val_to_url<'a>(val: &'a serde_json::Value) -> Option<&'a str> {

@@ -234,7 +234,7 @@ impl Podcast {
         episode: &'a Episode,
         ui: &DownloadBar,
     ) -> Result<DownloadedEpisode<'a>, String> {
-        let mut episode = episode.download(&self.client, ui).await;
+        let mut episode = episode.download(&self.client, ui).await?;
         episode.process().await?;
         episode.run_download_hook();
         episode.mark_downloaded();

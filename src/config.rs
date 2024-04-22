@@ -466,7 +466,10 @@ impl DownloadMode {
                         .earliest_date
                         .clone()
                         .into_val(global_config.earliest_date.as_ref())
-                        .map(|date| utils::date_str_to_unix(&date))
+                        .map(|date| {
+                            utils::date_str_to_unix(&date)
+                                .expect("failed to parse earliest_date string")
+                        })
                 },
             },
             (Some(_), None) => {
@@ -525,8 +528,18 @@ impl PodcastConfigs {
     pub fn load() -> Self {
         let path = Self::path();
 
-        let config_str = std::fs::read_to_string(&path).unwrap();
-        let map: HashMap<String, PodcastConfig> = toml::from_str(&config_str).unwrap();
+        let Ok(config_str) = fs::read_to_string(&path) else {
+            eprintln!("error: failed to read podcasts.toml file");
+            process::exit(1);
+        };
+
+        let map = match toml::from_str(&config_str) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("failed to deserialize podcasts.toml file\n{:?}", e);
+                process::exit(1);
+            }
+        };
 
         PodcastConfigs(map)
     }
@@ -605,13 +618,13 @@ impl PodcastConfigs {
     pub fn save_to_file(self) {
         use std::fs::File;
 
-        let str = toml::to_string(&self).unwrap();
+        let str = toml::to_string(&self).expect("failed to serialize podcastconfigs");
         let path = Self::path();
 
-        File::create(&path)
-            .unwrap()
-            .write_all(str.as_bytes())
-            .unwrap();
+        if let Err(e) = File::create(&path).map(|mut file| file.write_all(str.as_bytes())) {
+            eprintln!("failed to save podcast configs to file: {:?}", e);
+            process::exit(1);
+        };
     }
 
     pub fn extend(new_podcasts: HashMap<String, PodcastConfig>) {
@@ -645,7 +658,7 @@ impl PodcastConfigs {
         let path = utils::config_dir().join("podcasts.toml");
 
         if !path.exists() {
-            std::fs::File::create(&path).unwrap();
+            std::fs::File::create(&path).expect("failed to create podcasts.toml file");
         }
 
         path
@@ -746,16 +759,6 @@ impl PodcastConfig {
         }
     }
 
-    pub fn path() -> PathBuf {
-        let path = utils::config_dir().join("podcasts.toml");
-
-        if !path.exists() {
-            fs::File::create(&path).unwrap();
-        }
-
-        path
-    }
-
     /// Changes the `earliest_date` setting to the current time.
     ///
     /// This means only episodes published after this function was called will be downloaded.
@@ -765,7 +768,7 @@ impl PodcastConfig {
 
         let unix = utils::current_unix();
         let current_date = DateTime::from_timestamp(unix.as_secs() as i64, 0)
-            .unwrap()
+            .expect("failed to convert unix to datetime")
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 

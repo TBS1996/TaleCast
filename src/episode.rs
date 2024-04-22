@@ -69,7 +69,7 @@ impl EpisodeAttributes {
             .get("@type")
             .and_then(|x| Some(x.as_str()?.to_string()));
         let published = raw.get_str("pubDate")?;
-        let published = utils::date_str_to_unix(published);
+        let published = utils::date_str_to_unix(published)?;
         let guid = raw.get_string("guid")?;
 
         Some(Self {
@@ -212,7 +212,7 @@ impl Episode {
         &'a self,
         client: &reqwest::Client,
         ui: &DownloadBar,
-    ) -> DownloadedEpisode<'a> {
+    ) -> Result<DownloadedEpisode<'a>, String> {
         let config = &self.config;
 
         let partial_path = config
@@ -225,9 +225,11 @@ impl Episode {
             .write(true)
             .create(true)
             .open(&partial_path)
-            .unwrap();
+            .map_err(|_| "failed to write file".to_string())?;
 
-        let mut downloaded = file.seek(std::io::SeekFrom::End(0)).unwrap();
+        let mut downloaded = file
+            .seek(std::io::SeekFrom::End(0))
+            .map_err(|_| "file error".to_string())?;
 
         let response = client
             .get(self.as_ref().url())
@@ -235,7 +237,7 @@ impl Episode {
             .send()
             .await;
 
-        let response = utils::handle_response(response);
+        let response = utils::short_handle_response(response)?;
 
         let total_size = response.content_length().unwrap_or(0);
         let extension = utils::get_extension_from_response(&response, &self);
@@ -245,8 +247,9 @@ impl Episode {
         let mut stream = response.bytes_stream();
 
         while let Some(item) = stream.next().await {
-            let chunk = item.unwrap();
-            file.write_all(&chunk).unwrap();
+            let chunk = item.map_err(|_| "failed to load chunk".to_string())?;
+            file.write_all(&chunk)
+                .map_err(|_| "failed to write chunk to file".to_string())?;
             downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
             ui.set_progress(downloaded);
         }
@@ -257,9 +260,9 @@ impl Episode {
             path
         };
 
-        std::fs::rename(partial_path, &path).unwrap();
+        fs::rename(partial_path, &path).map_err(|_| "failed to rename episode file".to_string())?;
 
-        DownloadedEpisode::new(self, path)
+        Ok(DownloadedEpisode::new(self, path))
     }
 }
 
@@ -366,21 +369,22 @@ impl<'a> DownloadedEpisode<'a> {
                 return Err("configured symlink path is not a directory".to_string());
             }
 
-            std::os::unix::fs::symlink(self.path(), new_path).unwrap();
+            std::os::unix::fs::symlink(self.path(), new_path)
+                .map_err(|_| "failed to create symlink".to_string())?;
         }
 
         Ok(())
     }
 
     pub async fn process(&mut self) -> Result<(), String> {
-        self.rename();
+        self.rename()?;
         self.make_symlink()?;
         self.normalize_id3v2().await;
 
         Ok(())
     }
 
-    pub fn rename(&mut self) {
+    pub fn rename(&mut self) -> Result<(), String> {
         let new_name = &self.inner.config.name_pattern;
         let new_name = sanitize_filename::sanitize(new_name);
 
@@ -393,8 +397,9 @@ impl<'a> DownloadedEpisode<'a> {
             None => self.path.with_file_name(new_name),
         };
 
-        std::fs::rename(&self.path, &new_path).unwrap();
+        fs::rename(&self.path, &new_path).map_err(|_| "failed to rename episode".to_string())?;
         self.path = new_path;
+        Ok(())
     }
 }
 

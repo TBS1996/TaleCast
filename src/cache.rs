@@ -28,7 +28,7 @@ impl MimeMap {
 fn read_file_to_vec(path: &Path) -> io::Result<Vec<u8>> {
     let mut file = fs::File::open(path)?;
     let mut data = Vec::new();
-    file.read_to_end(&mut data).unwrap();
+    file.read_to_end(&mut data)?;
     Ok(data)
 }
 
@@ -58,7 +58,7 @@ async fn write_image(url: &str) -> Option<()> {
             .and_then(|value| value.to_str().ok())
             .unwrap_or("")
             .to_string();
-        let data = response.bytes().await.unwrap().to_vec();
+        let data = response.bytes().await.ok()?.to_vec();
         let path = utils::cache_dir().join(&hashed);
         let mut file = fs::File::create(&path).ok()?;
         file.write_all(&data).ok()?;

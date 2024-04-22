@@ -4,7 +4,6 @@ use crate::config::PodcastConfig;
 use crate::config::PodcastConfigs;
 use crate::config::{Config, GlobalConfig};
 use crate::display::DownloadBar;
-use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
 use crate::episode::RawEpisode;
 use crate::tags;
@@ -111,7 +110,7 @@ impl Podcasts {
                 let global_config = Arc::clone(&self.global_config);
 
                 tokio::task::spawn(async move {
-                    match Podcast::new(name, config, client, &ui, &global_config).await {
+                    match Podcast::new(name, config, &global_config, client, &ui).await {
                         Ok(podcast) => podcast.sync(&ui).await,
                         Err(e) => {
                             ui.error(&e);
@@ -188,9 +187,9 @@ impl Podcast {
     pub async fn new(
         name: String,
         config: PodcastConfig,
+        global_config: &GlobalConfig,
         client: Arc<reqwest::Client>,
         ui: &DownloadBar,
-        global_config: &GlobalConfig,
     ) -> Result<Podcast, String> {
         ui.fetching();
         let Some(xml_string) = utils::download_text(&client, &config.url, ui).await else {
@@ -229,18 +228,6 @@ impl Podcast {
         })
     }
 
-    pub async fn download_episode<'a>(
-        &'a self,
-        episode: &'a Episode,
-        ui: &DownloadBar,
-    ) -> Result<DownloadedEpisode<'a>, String> {
-        let mut episode = episode.download(&self.client, ui).await;
-        episode.process().await?;
-        episode.run_download_hook();
-        episode.mark_downloaded();
-        Ok(episode)
-    }
-
     pub async fn sync(self, ui: &DownloadBar) -> Vec<PathBuf> {
         ui.init();
 
@@ -249,7 +236,8 @@ impl Podcast {
 
         for (index, episode) in episodes.iter().enumerate() {
             ui.begin_download(&episode, index, episodes.len());
-            match self.download_episode(episode, ui).await {
+
+            match episode.download_and_process(&self.client, ui).await {
                 Ok(downloaded_episode) => downloaded.push(downloaded_episode),
                 Err(e) => {
                     ui.error(&e);

@@ -44,7 +44,8 @@ pub fn config_dir() -> PathBuf {
 pub fn cache_dir() -> PathBuf {
     let path = match std::env::var("XDG_CACHE_HOME") {
         Ok(path) => PathBuf::from(path),
-        Err(_) => dirs::cache_dir().unwrap(),
+        Err(_) => dirs::cache_dir()
+            .expect("unable to locate cache direcotry. Try setting 'XDG_CACHE_HOME' manually"),
     }
     .join(crate::APPNAME);
 
@@ -59,7 +60,9 @@ pub fn current_unix() -> Unix {
 }
 
 pub fn default_download_path() -> PathBuf {
-    let path = dirs::home_dir().unwrap().join(crate::APPNAME);
+    let path = dirs::home_dir()
+        .expect("unable to load home directory. Try hardcoding the download path in settings.")
+        .join(crate::APPNAME);
     utils::create_dir(&path);
     path
 }
@@ -97,7 +100,27 @@ struct BasicPodcast {
     url: String,
 }
 
-pub fn handle_response(response: Result<reqwest::Response, reqwest::Error>) -> reqwest::Response {
+pub fn short_handle_response(
+    response: Result<reqwest::Response, reqwest::Error>,
+) -> Result<reqwest::Response, String> {
+    match response {
+        Ok(res) => Ok(res),
+        Err(e) => {
+            let error_message = match e {
+                e if e.is_builder() => format!("Invalid URL"),
+                e if e.is_connect() => format!("failed to connect to url",),
+                e if e.is_timeout() => format!("request timed out"),
+                e if e.is_status() => format!("server error"),
+                e if e.is_redirect() => format!("too many redirects while connecting"),
+                e if e.is_decode() => format!("failed to decode response"),
+                _ => format!("unexpected connection error"),
+            };
+            Err(error_message)
+        }
+    }
+}
+
+pub fn _handle_response(response: Result<reqwest::Response, reqwest::Error>) -> reqwest::Response {
     match response {
         Ok(res) => res,
         Err(e) => {
@@ -212,7 +235,9 @@ pub fn get_input(prompt: Option<&str>) -> Option<String> {
     }
 
     let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("unable to read stdin");
     let input = input.trim();
 
     if input.is_empty() {
@@ -272,8 +297,14 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
 
     let mut regex_parts = vec![];
     for index in indices {
-        let name = results[index].get("collectionName").unwrap().to_string();
-        let url = results[index].get("feedUrl").unwrap().to_string();
+        let name = results[index]
+            .get("collectionName")
+            .expect("podcast missing the collection-name attribute")
+            .to_string();
+        let url = results[index]
+            .get("feedUrl")
+            .expect("podcast missing url field")
+            .to_string();
         let name = trim_quotes(&name);
         let url = trim_quotes(&url);
 
@@ -302,9 +333,9 @@ pub fn trim_quotes(s: &str) -> String {
     s.to_string()
 }
 
-pub fn date_str_to_unix(date: &str) -> time::Duration {
-    let secs = dateparser::parse(date).unwrap().timestamp();
-    time::Duration::from_secs(secs as u64)
+pub fn date_str_to_unix(date: &str) -> Option<time::Duration> {
+    let secs = dateparser::parse(date).ok()?.timestamp();
+    Some(time::Duration::from_secs(secs as u64))
 }
 
 pub fn get_extension_from_response(response: &reqwest::Response, episode: &Episode) -> String {

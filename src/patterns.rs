@@ -192,18 +192,13 @@ impl Evaluate for UnitPattern {
             Self::Url => data.episode.url().to_string(),
             Self::PodName => data.pod_name.to_string(),
             Self::AppName => crate::APPNAME.to_string(),
-            Self::Home => home(),
+            Self::Home => home().unwrap_or("<missing home>".to_string()),
         }
     }
 }
 
-fn home() -> String {
-    dirs::home_dir()
-        .unwrap()
-        .as_os_str()
-        .to_str()
-        .unwrap()
-        .to_owned()
+fn home() -> Option<String> {
+    Some(dirs::home_dir()?.as_os_str().to_str()?.to_owned())
 }
 use std::path::PathBuf;
 

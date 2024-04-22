@@ -97,7 +97,7 @@ impl From<Args> for Action {
         }
 
         if args.edit_podcasts {
-            let path = config::PodcastConfig::path();
+            let path = config::PodcastConfigs::path();
             return Self::Edit { path };
         }
 

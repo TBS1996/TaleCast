@@ -1,7 +1,6 @@
 use crate::config::GlobalConfig;
 use crate::config::PodcastConfigs;
 use clap::Parser;
-use podcast::Podcasts;
 use regex::Regex;
 use std::path::PathBuf;
 
@@ -233,8 +232,11 @@ async fn main() {
             global_config,
             print,
         } => {
-            let podcast_configs = PodcastConfigs::load().assert_not_empty().filter(filter);
-            let paths = Podcasts::new(global_config, podcast_configs).sync().await;
+            let paths = PodcastConfigs::load()
+                .assert_not_empty()
+                .filter(filter)
+                .sync(global_config)
+                .await;
 
             eprintln!("Syncing complete!");
             eprintln!("{} episodes downloaded.", paths.len());

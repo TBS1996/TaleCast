@@ -1,15 +1,12 @@
 use crate::config::DownloadMode;
 use crate::config::EvalData;
 use crate::config::PodcastConfig;
-use crate::config::PodcastConfigs;
 use crate::config::{Config, GlobalConfig};
 use crate::display::DownloadBar;
 use crate::episode::Episode;
 use crate::episode::RawEpisode;
 use crate::tags;
 use crate::utils;
-use futures::future;
-use indicatif::MultiProgress;
 use quickxml_to_serde::{xml_string_to_json, Config as XmlConfig};
 use serde_json::Map;
 use serde_json::Value;
@@ -60,74 +57,6 @@ fn xml_to_value(xml: &str) -> Option<(RawPodcast, Vec<RawEpisode>)> {
         .collect::<Vec<RawEpisode>>();
 
     Some((podcast, episodes))
-}
-
-pub struct Podcasts {
-    mp: MultiProgress,
-    configs: PodcastConfigs,
-    client: Arc<reqwest::Client>,
-    global_config: Arc<GlobalConfig>,
-}
-
-impl Podcasts {
-    pub fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
-        let mp = MultiProgress::new();
-        let global_config = Arc::new(global_config);
-
-        let client = reqwest::Client::builder()
-            .user_agent(&global_config.user_agent())
-            .build()
-            .map(Arc::new)
-            .expect("error: failed to instantiate reqwest client");
-
-        Self {
-            mp,
-            client,
-            configs,
-            global_config,
-        }
-    }
-
-    pub async fn sync(self) -> Vec<PathBuf> {
-        eprintln!("syncing {} podcasts", &self.configs.len());
-
-        let Some(longest_name) = self.configs.longest_name() else {
-            return vec![];
-        };
-
-        let futures = self
-            .configs
-            .into_inner()
-            .into_iter()
-            .map(|(name, config)| {
-                let client = Arc::clone(&self.client);
-                let ui = DownloadBar::new(
-                    name.clone(),
-                    self.global_config.style(),
-                    &self.mp,
-                    longest_name,
-                );
-                let global_config = Arc::clone(&self.global_config);
-
-                tokio::task::spawn(async move {
-                    match Podcast::new(name, config, &global_config, client, &ui).await {
-                        Ok(podcast) => podcast.sync(&ui).await,
-                        Err(e) => {
-                            ui.error(&e);
-                            return vec![];
-                        }
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        future::join_all(futures)
-            .await
-            .into_iter()
-            .filter_map(Result::ok)
-            .flatten()
-            .collect()
-    }
 }
 
 #[derive(Debug)]
@@ -228,12 +157,11 @@ impl Podcast {
         })
     }
 
-    pub async fn sync(self, ui: &DownloadBar) -> Vec<PathBuf> {
+    pub async fn sync(self, ui: &mut DownloadBar) -> Vec<PathBuf> {
         ui.init();
 
         let episodes = self.pending_episodes();
         let mut downloaded = vec![];
-        let mut error = false;
 
         for (index, episode) in episodes.iter().enumerate() {
             ui.begin_download(&episode, index, episodes.len());
@@ -242,7 +170,6 @@ impl Podcast {
                 Ok(downloaded_episode) => downloaded.push(downloaded_episode),
                 Err(e) => {
                     ui.error(&e);
-                    error = true;
                     break;
                 }
             };
@@ -256,9 +183,7 @@ impl Podcast {
             paths.push(episode.path().to_path_buf());
         }
 
-        if !error {
-            ui.complete();
-        }
+        ui.complete();
         paths
     }
 

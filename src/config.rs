@@ -1,15 +1,20 @@
+use crate::display::DownloadBar;
 use crate::patterns::Evaluate;
 use crate::patterns::FullPattern;
+use crate::podcast::Podcast;
 use crate::podcast::RawPodcast;
 use crate::utils;
 use crate::utils::Unix;
+use futures::future;
+use indicatif::MultiProgress;
 use regex::Regex;
 use serde::de::IntoDeserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
 use std::time;
@@ -531,6 +536,51 @@ impl Default for DownloadMode {
 pub struct PodcastConfigs(HashMap<String, PodcastConfig>);
 
 impl PodcastConfigs {
+    pub async fn sync(self, global_config: GlobalConfig) -> Vec<PathBuf> {
+        eprintln!("syncing {} podcasts", &self.0.len());
+
+        let mp = MultiProgress::new();
+        let global_config = Arc::new(global_config);
+
+        let client = reqwest::Client::builder()
+            .user_agent(&global_config.user_agent())
+            .build()
+            .map(Arc::new)
+            .expect("error: failed to instantiate reqwest client");
+
+        let Some(longest_name) = self.longest_name() else {
+            return vec![];
+        };
+
+        let futures = self
+            .into_inner()
+            .into_iter()
+            .map(|(name, config)| {
+                let client = Arc::clone(&client);
+                let mut ui =
+                    DownloadBar::new(name.clone(), global_config.style(), &mp, longest_name);
+                let global_config = Arc::clone(&global_config);
+
+                tokio::task::spawn(async move {
+                    match Podcast::new(name, config, &global_config, client, &ui).await {
+                        Ok(podcast) => podcast.sync(&mut ui).await,
+                        Err(e) => {
+                            ui.error(&e);
+                            return vec![];
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        future::join_all(futures)
+            .await
+            .into_iter()
+            .filter_map(Result::ok)
+            .flatten()
+            .collect()
+    }
+
     pub fn load() -> Self {
         let path = Self::path();
 

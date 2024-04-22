@@ -12,6 +12,7 @@ pub struct DownloadBar {
     podcast_name: String,
     longest_podcast_name: usize,
     settings: Arc<IndicatifSettings>,
+    completed: bool,
 }
 
 impl DownloadBar {
@@ -32,6 +33,7 @@ impl DownloadBar {
             settings,
             podcast_name,
             longest_podcast_name,
+            completed: false,
         }
     }
 
@@ -110,20 +112,30 @@ impl DownloadBar {
         }
     }
 
-    pub fn error(&self, msg: &str) {
+    pub fn error(&mut self, msg: &str) {
+        if self.completed {
+            return;
+        }
+
         if let Some(pb) = &self.bar {
             let template = self.settings.error_template();
             self.set_template(&template);
             let msg = self.msg_with_prefix(msg);
             pb.finish_with_message(msg);
+            self.completed = true;
         }
     }
 
-    pub fn complete(&self) {
+    pub fn complete(&mut self) {
+        if self.completed {
+            return;
+        }
+
         if let Some(pb) = &self.bar {
             let template = self.settings.completion_template();
             self.set_template(&template);
             pb.finish_with_message(self.podcast_name.clone());
+            self.completed = true;
         }
     }
 }

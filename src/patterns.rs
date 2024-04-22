@@ -1,7 +1,7 @@
+use crate::episode::RawEpisode;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use crate::episode::Episode;
 use crate::podcast::Podcast;
 use crate::utils;
 
@@ -97,7 +97,7 @@ impl DataPattern {
 }
 
 impl Evaluate for DataPattern {
-    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String {
+    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String {
         use chrono::TimeZone;
         use DataPatternType as Ty;
         let null = "<value not found>";
@@ -118,11 +118,11 @@ impl Evaluate for DataPattern {
                 let formatting = &self.data;
 
                 let datetime = chrono::Utc
-                    .timestamp_opt(episode.published.as_secs() as i64, 0)
+                    .timestamp_opt(episode.published().as_secs() as i64, 0)
                     .unwrap();
 
                 if formatting == "unix" {
-                    episode.published.as_secs().to_string()
+                    episode.published().as_secs().to_string()
                 } else {
                     datetime.format(formatting).to_string()
                 }
@@ -188,10 +188,10 @@ impl UnitPattern {
 }
 
 impl Evaluate for UnitPattern {
-    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String {
+    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String {
         match self {
-            Self::Guid => episode.guid.to_string(),
-            Self::Url => episode.url.to_string(),
+            Self::Guid => episode.guid(),
+            Self::Url => episode.url(),
             Self::PodName => podcast.name().to_string(),
             Self::AppName => crate::APPNAME.to_string(),
             Self::Home => home(),
@@ -210,16 +210,16 @@ fn home() -> String {
 use std::path::PathBuf;
 
 pub trait Evaluate {
-    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String;
+    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String;
 
-    fn path_eval(&self, podcast: &Podcast, episode: &Episode) -> PathBuf {
+    fn path_eval(&self, podcast: &Podcast, episode: &RawEpisode) -> PathBuf {
         let s = self.evaluate(podcast, episode);
         PathBuf::from(s)
     }
 }
 
 impl Evaluate for FullPattern {
-    fn evaluate(&self, podcast: &Podcast, episode: &Episode) -> String {
+    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String {
         let mut output = String::new();
 
         for segment in &self.0 {

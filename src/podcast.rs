@@ -4,6 +4,7 @@ use crate::config::{Config, GlobalConfig};
 use crate::display::DownloadBar;
 use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
+use crate::episode::RawEpisode;
 use crate::tags;
 use crate::utils;
 use futures::future;
@@ -19,7 +20,7 @@ use std::sync::Arc;
 /// The library will merge different namespaces together, which is why we manually change
 /// the itunes namespace, and then after converting it, we change it back. Preserving itunes:XXX as
 /// separate keys.
-fn xml_to_value(xml: &str) -> Option<(Value, Vec<Map<String, Value>>)> {
+fn xml_to_value(xml: &str) -> Option<(RawPodcast, Vec<RawEpisode>)> {
     let placeholder = "__placeholder__";
     let replacement = format!("itunes{}", placeholder);
     let xml = xml.replace("itunes:", &replacement);
@@ -41,9 +42,11 @@ fn xml_to_value(xml: &str) -> Option<(Value, Vec<Map<String, Value>>)> {
         }
     }
 
+    let podcast = RawPodcast::new(new_map);
+
     let items = std::mem::take(val.as_object_mut()?.get_mut("item")?.as_array_mut()?);
 
-    let items = items
+    let episodes = items
         .iter()
         .map(|item| {
             let mut new_item_map: Map<String, Value> = Map::new();
@@ -51,11 +54,11 @@ fn xml_to_value(xml: &str) -> Option<(Value, Vec<Map<String, Value>>)> {
                 let new_key = key.replace(&replacement, "itunes:");
                 new_item_map.insert(new_key, val.clone());
             }
-            new_item_map
+            RawEpisode::new(new_item_map)
         })
-        .collect::<Vec<Map<String, Value>>>();
+        .collect::<Vec<RawEpisode>>();
 
-    Some((Value::Object(new_map), items))
+    Some((podcast, episodes))
 }
 
 use std::collections::HashMap;
@@ -140,12 +143,21 @@ impl Podcasts {
     }
 }
 
+#[derive(Debug)]
+pub struct RawPodcast(Map<String, serde_json::Value>);
+
+impl RawPodcast {
+    pub fn new(raw: serde_json::Map<String, serde_json::Value>) -> Self {
+        Self(raw)
+    }
+}
+
 use crate::config::PodcastConfig;
 
 #[derive(Debug)]
 pub struct Podcast {
     name: String, // The configured name in `podcasts.toml`.
-    xml: serde_json::Value,
+    raw: RawPodcast,
     episodes: Vec<Episode>,
     client: Arc<reqwest::Client>,
     mode: DownloadMode,
@@ -164,13 +176,13 @@ impl Podcast {
             return Err("failed to download xml-file".to_string());
         };
 
-        let Some((channel, items)) = xml_to_value(&xml_string) else {
+        let Some((channel, raw_episodes)) = xml_to_value(&xml_string) else {
             return Err("failed to parse xml".to_string());
         };
 
         let mut podcast = Podcast {
             name,
-            xml: channel,
+            raw: channel,
             episodes: vec![],
             client,
             mode: DownloadMode::new(global_config, &config),
@@ -178,10 +190,9 @@ impl Podcast {
 
         let mut episodes = vec![];
 
-        for item in items {
-            if let Some(mut ep) = Episode::new(item) {
-                let config = Config::new(global_config, &config, &podcast, &ep);
-                ep.config = config;
+        for episode in raw_episodes {
+            let config = Config::new(global_config, &config, &podcast, &episode);
+            if let Some(ep) = Episode::new(episode, config) {
                 episodes.push(ep);
             }
         }
@@ -204,7 +215,7 @@ impl Podcast {
     }
 
     fn get_str<'a>(&'a self, key: &str) -> Option<&'a str> {
-        let inner = self.xml.get(key)?;
+        let inner = self.raw.0.get(key)?;
         utils::val_to_str(inner)
     }
 
@@ -219,14 +230,14 @@ impl Podcast {
 
     pub fn categories(&self) -> Vec<&str> {
         let key = "itunes:category";
-        match self.xml.get(&key).and_then(|x| x.as_array()) {
+        match self.raw.0.get(key).and_then(|x| x.as_array()) {
             Some(v) => v.iter().filter_map(utils::val_to_str).collect(),
             None => vec![],
         }
     }
 
     pub fn copyright(&self) -> Option<&str> {
-        let inner = self.xml.get("copyright")?;
+        let inner = self.raw.0.get("copyright")?;
         utils::val_to_str(&inner)
     }
 
@@ -235,7 +246,7 @@ impl Podcast {
     }
 
     pub fn image(&self) -> Option<&str> {
-        let inner = self.xml.get("image")?;
+        let inner = self.raw.0.get("image")?;
         utils::val_to_url(inner)
     }
 
@@ -282,7 +293,7 @@ impl Podcast {
     }
 
     pub fn get_text_attribute(&self, key: &str) -> Option<&str> {
-        utils::val_to_str(self.xml.get(key)?)
+        utils::val_to_str(self.raw.0.get(key)?)
     }
 
     fn pending_episodes(&self) -> Vec<&Episode> {

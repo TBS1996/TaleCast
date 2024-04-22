@@ -1,3 +1,4 @@
+use crate::episode::RawEpisode;
 use crate::patterns::FullPattern;
 use crate::utils;
 use crate::utils::Unix;
@@ -104,7 +105,6 @@ pub struct Config {
     pub download_hook: Option<PathBuf>,
 }
 
-use crate::episode::Episode;
 use crate::patterns::Evaluate;
 use crate::podcast::Podcast;
 
@@ -113,7 +113,7 @@ impl Config {
         global_config: &GlobalConfig,
         podcast_config: &PodcastConfig,
         podcast: &Podcast,
-        episode: &Episode,
+        episode: &RawEpisode,
     ) -> Self {
         let podcast_config = podcast_config.to_owned();
         let id3_tags = {

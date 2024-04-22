@@ -13,6 +13,47 @@ use std::time;
 use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
+pub struct RawEpisode(serde_json::Map<String, serde_json::Value>);
+
+impl RawEpisode {
+    pub fn new(val: serde_json::Map<String, serde_json::Value>) -> Self {
+        Self(val)
+    }
+
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        utils::val_to_str(self.0.get(key)?)
+    }
+
+    pub fn get_url(&self, key: &str) -> Option<&str> {
+        utils::val_to_url(self.0.get(key)?)
+    }
+
+    pub fn get_val(&self, key: &str) -> Option<&serde_json::Value> {
+        self.0.get(key)
+    }
+
+    pub fn get_string(&self, key: &str) -> Option<String> {
+        self.get_str(key).map(str::to_owned)
+    }
+
+    pub fn published(&self) -> time::Duration {
+        utils::date_str_to_unix(self.get_str("pubDate").unwrap())
+    }
+
+    pub fn url(&self) -> String {
+        self.get_val("enclosure")
+            .unwrap()
+            .get("@url")
+            .and_then(|x| Some(x.as_str().unwrap().to_string()))
+            .unwrap()
+    }
+
+    pub fn guid(&self) -> String {
+        self.get_string("guid").unwrap()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Episode {
     pub title: String,
     pub config: Config,
@@ -21,13 +62,13 @@ pub struct Episode {
     pub guid: String,
     pub published: time::Duration,
     pub index: usize,
-    pub raw: serde_json::Map<String, serde_json::Value>,
+    pub raw: RawEpisode,
 }
 
 impl Episode {
-    pub fn new(raw: serde_json::Map<String, serde_json::Value>) -> Option<Self> {
-        let title = raw.get("title")?.as_str()?.to_string();
-        let enclosure = raw.get("enclosure")?;
+    pub fn new(raw: RawEpisode, config: Config) -> Option<Self> {
+        let title = raw.get_string("title")?;
+        let enclosure = raw.get_val("enclosure")?;
         let url = enclosure
             .get("@url")
             .and_then(|x| Some(x.as_str()?.to_string()))?;
@@ -35,10 +76,9 @@ impl Episode {
         let mime = enclosure
             .get("@type")
             .and_then(|x| Some(x.as_str()?.to_string()));
-        let published = utils::date_str_to_unix(raw.get("pubDate")?.as_str()?);
-        let guid = utils::val_to_str(raw.get("guid")?)?.to_string();
+        let published = utils::date_str_to_unix(raw.get_str("pubDate")?);
+        let guid = raw.get_string("guid")?;
         let index = 0;
-        let config = Default::default();
 
         Self {
             title,
@@ -54,13 +94,12 @@ impl Episode {
     }
 
     pub fn get_str(&self, key: &str) -> Option<&str> {
-        let inner = self.raw.get(key)?;
-        utils::val_to_str(inner)
+        self.raw.get_str(key)
     }
 
     pub fn image(&self) -> Option<&str> {
         let key = "itunes:image";
-        utils::val_to_url(self.raw.get(key)?)
+        self.raw.get_url(key)
     }
 
     pub fn is_downloaded(&self) -> bool {

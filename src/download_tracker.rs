@@ -58,7 +58,7 @@ impl DownloadedEpisodes {
             "{} {} \"{}\"",
             id,
             utils::current_unix().as_secs(),
-            episode.as_ref().title
+            episode.inner().attrs.title()
         )
         .unwrap();
     }

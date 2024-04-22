@@ -308,7 +308,7 @@ pub fn date_str_to_unix(date: &str) -> time::Duration {
 }
 
 pub fn get_extension_from_response(response: &reqwest::Response, episode: &Episode) -> String {
-    let url = &episode.url;
+    let url = &episode.attrs.url();
     let ext = match PathBuf::from(url)
         .extension()
         .and_then(|ext| ext.to_str().map(String::from))

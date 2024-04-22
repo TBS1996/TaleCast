@@ -1,4 +1,6 @@
 use crate::config::DownloadMode;
+use crate::config::EvalData;
+use crate::config::PodcastConfig;
 use crate::config::PodcastConfigs;
 use crate::config::{Config, GlobalConfig};
 use crate::display::DownloadBar;
@@ -15,7 +17,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Converts the podcast's xml string to a [`serde_json::Value`].
+/// Converts the podcast's xml string to serde values of the channel and the episodes.
 ///
 /// The library will merge different namespaces together, which is why we manually change
 /// the itunes namespace, and then after converting it, we change it back. Preserving itunes:XXX as
@@ -46,7 +48,7 @@ fn xml_to_value(xml: &str) -> Option<(RawPodcast, Vec<RawEpisode>)> {
 
     let items = std::mem::take(val.as_object_mut()?.get_mut("item")?.as_array_mut()?);
 
-    let mut episodes = items
+    let episodes = items
         .iter()
         .map(|item| {
             let mut new_item_map: Map<String, Value> = Map::new();
@@ -58,22 +60,18 @@ fn xml_to_value(xml: &str) -> Option<(RawPodcast, Vec<RawEpisode>)> {
         })
         .collect::<Vec<RawEpisode>>();
 
-    episodes.sort_by_key(|episode| episode.published());
-
     Some((podcast, episodes))
 }
 
-use std::collections::HashMap;
-
 pub struct Podcasts {
     mp: MultiProgress,
-    podcasts: HashMap<String, PodcastConfig>,
+    configs: PodcastConfigs,
     client: Arc<reqwest::Client>,
     global_config: Arc<GlobalConfig>,
 }
 
 impl Podcasts {
-    pub fn new(global_config: GlobalConfig) -> Self {
+    pub fn new(global_config: GlobalConfig, configs: PodcastConfigs) -> Self {
         let mp = MultiProgress::new();
         let global_config = Arc::new(global_config);
 
@@ -81,38 +79,26 @@ impl Podcasts {
             .user_agent(&global_config.user_agent())
             .build()
             .map(Arc::new)
-            .unwrap();
-
-        let podcasts = HashMap::default();
+            .expect("error: failed to instantiate reqwest client");
 
         Self {
             mp,
             client,
-            podcasts,
+            configs,
             global_config,
         }
     }
-    pub async fn add(mut self, configs: PodcastConfigs) -> Self {
-        self.podcasts.extend(configs.0);
-        self
-    }
-
-    fn longest_name(&self) -> Option<usize> {
-        self.podcasts
-            .iter()
-            .map(|(name, _)| name.chars().count())
-            .max()
-    }
 
     pub async fn sync(self) -> Vec<PathBuf> {
-        eprintln!("syncing {} podcasts", &self.podcasts.len());
+        eprintln!("syncing {} podcasts", &self.configs.len());
 
-        let Some(longest_name) = self.longest_name() else {
+        let Some(longest_name) = self.configs.longest_name() else {
             return vec![];
         };
 
         let futures = self
-            .podcasts
+            .configs
+            .into_inner()
             .into_iter()
             .map(|(name, config)| {
                 let client = Arc::clone(&self.client);
@@ -156,19 +142,47 @@ impl RawPodcast {
     pub fn get_str(&self, key: &str) -> Option<&str> {
         utils::val_to_str(self.0.get(key)?)
     }
-}
 
-use crate::config::PodcastConfig;
+    pub fn title(&self) -> &str {
+        self.get_str("title").unwrap()
+    }
+
+    pub fn author(&self) -> Option<&str> {
+        let key = "itunes:author";
+        self.get_str(&key)
+    }
+
+    pub fn categories(&self) -> Vec<&str> {
+        let key = "itunes:category";
+        match self.0.get(key).and_then(|x| x.as_array()) {
+            Some(v) => v.iter().filter_map(utils::val_to_str).collect(),
+            None => vec![],
+        }
+    }
+
+    pub fn copyright(&self) -> Option<&str> {
+        let inner = self.0.get("copyright")?;
+        utils::val_to_str(&inner)
+    }
+
+    pub fn language(&self) -> Option<&str> {
+        self.get_str("language")
+    }
+
+    pub fn image(&self) -> Option<&str> {
+        let inner = self.0.get("image")?;
+        utils::val_to_url(inner)
+    }
+}
 
 #[derive(Debug)]
 pub struct Podcast {
-    raw: RawPodcast,
     episodes: Vec<Episode>,
     client: Arc<reqwest::Client>,
     mode: DownloadMode,
 }
 
-use crate::config::EvalData;
+use crate::episode::EpisodeAttributes;
 
 impl Podcast {
     pub async fn new(
@@ -187,58 +201,32 @@ impl Podcast {
             return Err("failed to parse xml".to_string());
         };
 
-        let episodes = raw_episodes
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, episode)| {
-                let data = EvalData::new(&name, &raw_podcast, &episode);
+        let mut episodes = vec![];
+        for (index, episode) in raw_episodes.into_iter().enumerate() {
+            if let Some(attrs) = EpisodeAttributes::new(episode) {
+                let data = EvalData::new(&name, &raw_podcast, &attrs);
                 let config = Config::new(global_config, &config, data);
-                Episode::new(episode, index, config)
-            })
-            .collect();
+                let tags = tags::extract_tags_from_raw(&raw_podcast, &attrs).await;
+
+                let url = if let Some(url) = attrs.image().or(raw_podcast.image()) {
+                    Some(url.to_string())
+                } else {
+                    None
+                };
+
+                let mut episode = Episode::new(attrs, index, config, tags);
+                episode.image_url = url;
+                episodes.push(episode);
+            };
+        }
+
+        episodes.sort_by_key(|ep| ep.attrs.published);
 
         Ok(Podcast {
-            raw: raw_podcast,
             episodes,
             client,
             mode: DownloadMode::new(global_config, &config),
         })
-    }
-
-    fn get_str<'a>(&'a self, key: &str) -> Option<&'a str> {
-        let inner = self.raw.0.get(key)?;
-        utils::val_to_str(inner)
-    }
-
-    pub fn title(&self) -> &str {
-        self.get_str("title").unwrap()
-    }
-
-    pub fn author(&self) -> Option<&str> {
-        let key = "itunes:author";
-        self.get_str(&key)
-    }
-
-    pub fn categories(&self) -> Vec<&str> {
-        let key = "itunes:category";
-        match self.raw.0.get(key).and_then(|x| x.as_array()) {
-            Some(v) => v.iter().filter_map(utils::val_to_str).collect(),
-            None => vec![],
-        }
-    }
-
-    pub fn copyright(&self) -> Option<&str> {
-        let inner = self.raw.0.get("copyright")?;
-        utils::val_to_str(&inner)
-    }
-
-    pub fn language(&self) -> Option<&str> {
-        self.get_str("language")
-    }
-
-    pub fn image(&self) -> Option<&str> {
-        let inner = self.raw.0.get("image")?;
-        utils::val_to_url(inner)
     }
 
     pub async fn download_episode<'a>(
@@ -247,7 +235,6 @@ impl Podcast {
         ui: &DownloadBar,
     ) -> Result<DownloadedEpisode<'a>, String> {
         let mut episode = episode.download(&self.client, ui).await;
-        self.set_mp3_tags(&mut episode).await?;
         episode.process().await?;
         episode.run_download_hook();
         episode.mark_downloaded();
@@ -305,13 +292,5 @@ impl Podcast {
         }
 
         pending
-    }
-
-    async fn set_mp3_tags(&self, episode: &mut DownloadedEpisode<'_>) -> Result<(), String> {
-        if episode.path().extension().is_some_and(|ext| ext == "mp3") {
-            tags::set_mp3_tags(&self, episode).await;
-        };
-
-        Ok(())
     }
 }

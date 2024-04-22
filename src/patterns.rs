@@ -188,8 +188,8 @@ impl UnitPattern {
 impl Evaluate for UnitPattern {
     fn evaluate(&self, data: EvalData) -> String {
         match self {
-            Self::Guid => data.episode.guid(),
-            Self::Url => data.episode.url(),
+            Self::Guid => data.episode.guid().to_string(),
+            Self::Url => data.episode.url().to_string(),
             Self::PodName => data.pod_name.to_string(),
             Self::AppName => crate::APPNAME.to_string(),
             Self::Home => home(),

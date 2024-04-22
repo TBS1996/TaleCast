@@ -234,11 +234,7 @@ async fn main() {
             print,
         } => {
             let podcast_configs = PodcastConfigs::load().assert_not_empty().filter(filter);
-            let paths = Podcasts::new(global_config)
-                .add(podcast_configs)
-                .await
-                .sync()
-                .await;
+            let paths = Podcasts::new(global_config, podcast_configs).sync().await;
 
             eprintln!("Syncing complete!");
             eprintln!("{} episodes downloaded.", paths.len());

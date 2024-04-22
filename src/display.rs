@@ -68,7 +68,7 @@ impl DownloadBar {
         if let Some(pb) = &self.bar {
             let fitted_episode_title = {
                 let title_length = self.settings.title_length();
-                let padded = &format!("{:<width$}", episode.title, width = title_length);
+                let padded = &format!("{:<width$}", episode.attrs.title(), width = title_length);
                 utils::truncate_string(padded, title_length, true)
             };
 

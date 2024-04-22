@@ -1,4 +1,3 @@
-use crate::episode::RawEpisode;
 use crate::patterns::Evaluate;
 use crate::patterns::FullPattern;
 use crate::podcast::RawPodcast;
@@ -91,15 +90,17 @@ fn default_id_pattern() -> String {
     "{guid}".to_string()
 }
 
+use crate::episode::EpisodeAttributes;
+
 #[derive(Clone, Copy)]
 pub struct EvalData<'a> {
     pub pod_name: &'a str,
     pub podcast: &'a RawPodcast,
-    pub episode: &'a RawEpisode,
+    pub episode: &'a EpisodeAttributes,
 }
 
 impl<'a> EvalData<'a> {
-    pub fn new(pod_name: &'a str, podcast: &'a RawPodcast, episode: &'a RawEpisode) -> Self {
+    pub fn new(pod_name: &'a str, podcast: &'a RawPodcast, episode: &'a EpisodeAttributes) -> Self {
         Self {
             pod_name,
             podcast,
@@ -518,7 +519,7 @@ impl Default for DownloadMode {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PodcastConfigs(pub HashMap<String, PodcastConfig>);
+pub struct PodcastConfigs(HashMap<String, PodcastConfig>);
 
 impl PodcastConfigs {
     pub fn load() -> Self {
@@ -528,6 +529,10 @@ impl PodcastConfigs {
         let map: HashMap<String, PodcastConfig> = toml::from_str(&config_str).unwrap();
 
         PodcastConfigs(map)
+    }
+
+    pub fn into_inner(self) -> HashMap<String, PodcastConfig> {
+        self.0
     }
 
     pub fn filter(self, filter: Option<Regex>) -> Self {
@@ -562,14 +567,8 @@ impl PodcastConfigs {
         self
     }
 
-    pub fn longest_name(&self) -> usize {
-        match self.0.iter().map(|(name, _)| name.chars().count()).max() {
-            Some(len) => len,
-            None => {
-                eprintln!("no podcasts configured");
-                std::process::exit(1);
-            }
-        }
+    pub fn longest_name(&self) -> Option<usize> {
+        self.0.iter().map(|(name, _)| name.chars().count()).max()
     }
 
     /// All podcasts matching the regex will only download upcoming episodes.

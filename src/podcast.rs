@@ -202,7 +202,7 @@ impl Podcast {
 
         let mut episodes = vec![];
         for (index, episode) in raw_episodes.into_iter().enumerate() {
-            if let Some(attrs) = EpisodeAttributes::new(episode) {
+            if let Some(attrs) = EpisodeAttributes::new(episode.clone()) {
                 let data = EvalData::new(&name, &raw_podcast, &attrs);
                 let config = Config::new(global_config, &config, data);
                 let tags = tags::extract_tags_from_raw(&raw_podcast, &attrs).await;
@@ -216,7 +216,7 @@ impl Podcast {
                 let mut episode = Episode::new(attrs, index, config, tags);
                 episode.image_url = url;
                 episodes.push(episode);
-            };
+            }
         }
 
         episodes.sort_by_key(|ep| ep.attrs.published);
@@ -233,6 +233,7 @@ impl Podcast {
 
         let episodes = self.pending_episodes();
         let mut downloaded = vec![];
+        let mut error = false;
 
         for (index, episode) in episodes.iter().enumerate() {
             ui.begin_download(&episode, index, episodes.len());
@@ -241,6 +242,7 @@ impl Podcast {
                 Ok(downloaded_episode) => downloaded.push(downloaded_episode),
                 Err(e) => {
                     ui.error(&e);
+                    error = true;
                     break;
                 }
             };
@@ -254,7 +256,9 @@ impl Podcast {
             paths.push(episode.path().to_path_buf());
         }
 
-        ui.complete();
+        if !error {
+            ui.complete();
+        }
         paths
     }
 

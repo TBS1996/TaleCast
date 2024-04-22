@@ -155,7 +155,8 @@ impl Config {
             .download_path
             .unwrap_or_else(|| global_config.download_path.clone());
 
-        let download_path = FullPattern::from_str(&download_path_str);
+        let download_path = FullPattern::from_str(&download_path_str).path_eval(data);
+        utils::create_dir(&download_path);
 
         let tracker_path = match podcast_config
             .tracker_path
@@ -171,40 +172,54 @@ impl Config {
                     FullPattern::from_str(&p)
                 }
             }
-        };
+        }
+        .path_eval(data);
 
-        let name_pattern = podcast_config
-            .name_pattern
-            .unwrap_or_else(|| global_config.name_pattern.clone());
+        if let Some(path) = tracker_path.parent() {
+            utils::create_dir(&path);
+        }
 
-        let name_pattern = FullPattern::from_str(&name_pattern);
+        let name_pattern = FullPattern::from_str(
+            &podcast_config
+                .name_pattern
+                .unwrap_or_else(|| global_config.name_pattern.clone()),
+        )
+        .evaluate(data);
 
         let id_pattern = podcast_config
             .id_pattern
             .unwrap_or_else(|| global_config.id_pattern.clone());
 
-        let id_pattern = FullPattern::from_str(&id_pattern);
+        let id_pattern = FullPattern::from_str(&id_pattern).evaluate(data);
 
         let url = podcast_config.url;
 
         let symlink = podcast_config
             .symlink
             .or(global_config.symlink.clone())
-            .map(|str| FullPattern::from_str(&str));
+            .map(|str| FullPattern::from_str(&str).path_eval(data));
 
         let partial_path = podcast_config
             .partial_path
             .or(global_config.partial_path.clone())
-            .map(|s| FullPattern::from_str(&s));
+            .map(|s| FullPattern::from_str(&s).path_eval(data));
+
+        if let Some(path) = &partial_path {
+            utils::create_dir(&path);
+        }
+
+        if let Some(path) = &symlink {
+            utils::create_dir(&path);
+        }
 
         Config {
             url: url.clone(),
-            name_pattern: name_pattern.evaluate(data),
-            id_pattern: id_pattern.evaluate(data),
-            download_path: download_path.path_eval(data),
-            partial_path: partial_path.clone().map(|p| p.path_eval(data)),
-            tracker_path: tracker_path.path_eval(data),
-            symlink: symlink.clone().map(|p| p.path_eval(data)),
+            name_pattern,
+            id_pattern,
+            download_path,
+            partial_path,
+            tracker_path,
+            symlink,
             id3_tags: id3_tags.clone(),
             download_hook: download_hook.clone(),
         }

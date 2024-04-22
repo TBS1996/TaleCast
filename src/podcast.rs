@@ -1,5 +1,6 @@
 use crate::config::DownloadMode;
-use crate::config::{Config, GlobalConfig, PodcastConfigs};
+use crate::config::PodcastConfigs;
+use crate::config::{Config, GlobalConfig};
 use crate::display::DownloadBar;
 use crate::episode::DownloadedEpisode;
 use crate::episode::Episode;
@@ -57,9 +58,11 @@ fn xml_to_value(xml: &str) -> Option<(Value, Vec<Map<String, Value>>)> {
     Some((Value::Object(new_map), items))
 }
 
+use std::collections::HashMap;
+
 pub struct Podcasts {
     mp: MultiProgress,
-    podcasts: Vec<PodcastEntry>,
+    podcasts: HashMap<String, PodcastConfig>,
     client: Arc<reqwest::Client>,
     global_config: Arc<GlobalConfig>,
 }
@@ -75,7 +78,7 @@ impl Podcasts {
             .map(Arc::new)
             .unwrap();
 
-        let podcasts = vec![];
+        let podcasts = HashMap::default();
 
         Self {
             mp,
@@ -85,23 +88,14 @@ impl Podcasts {
         }
     }
     pub async fn add(mut self, configs: PodcastConfigs) -> Self {
-        let mut podcasts = vec![];
-
-        for (name, config) in configs {
-            let podcast = PodcastEntry::new(name, config);
-            podcasts.push(podcast);
-        }
-
-        self.podcasts.extend(podcasts);
-        self.podcasts.sort_by_key(|pod| pod.name.clone());
-
+        self.podcasts.extend(configs.0);
         self
     }
 
     fn longest_name(&self) -> Option<usize> {
         self.podcasts
             .iter()
-            .map(|pod| pod.name.chars().count())
+            .map(|(name, _)| name.chars().count())
             .max()
     }
 
@@ -115,26 +109,24 @@ impl Podcasts {
         let futures = self
             .podcasts
             .into_iter()
-            .map(|podcast| {
+            .map(|(name, config)| {
                 let client = Arc::clone(&self.client);
                 let ui = DownloadBar::new(
-                    podcast.name.clone(),
+                    name.clone(),
                     self.global_config.style(),
                     &self.mp,
                     longest_name,
                 );
-                let config = Arc::clone(&self.global_config);
+                let global_config = Arc::clone(&self.global_config);
 
                 tokio::task::spawn(async move {
-                    let podcast = match podcast.fetch(client, &ui, &config).await {
-                        Ok(s) => s,
+                    match Podcast::new(name, config, client, &ui, &global_config).await {
+                        Ok(podcast) => podcast.sync(&ui).await,
                         Err(e) => {
                             ui.error(&e);
                             return vec![];
                         }
-                    };
-
-                    podcast.sync(&ui).await
+                    }
                 })
             })
             .collect::<Vec<_>>();
@@ -148,27 +140,27 @@ impl Podcasts {
     }
 }
 
-#[derive(Debug)]
-pub struct PodcastEntry {
-    name: String,
-    config: PodcastConfig,
-}
-
 use crate::config::PodcastConfig;
 
-impl PodcastEntry {
-    pub fn new(name: String, config: PodcastConfig) -> Self {
-        Self { name, config }
-    }
+#[derive(Debug)]
+pub struct Podcast {
+    name: String, // The configured name in `podcasts.toml`.
+    xml: serde_json::Value,
+    episodes: Vec<Episode>,
+    client: Arc<reqwest::Client>,
+    mode: DownloadMode,
+}
 
-    pub async fn fetch(
-        self,
+impl Podcast {
+    pub async fn new(
+        name: String,
+        config: PodcastConfig,
         client: Arc<reqwest::Client>,
         ui: &DownloadBar,
         global_config: &GlobalConfig,
     ) -> Result<Podcast, String> {
         ui.fetching();
-        let Some(xml_string) = utils::download_text(&client, &self.config.url, ui).await else {
+        let Some(xml_string) = utils::download_text(&client, &config.url, ui).await else {
             return Err("failed to download xml-file".to_string());
         };
 
@@ -177,18 +169,18 @@ impl PodcastEntry {
         };
 
         let mut podcast = Podcast {
-            name: self.name,
+            name,
             xml: channel,
             episodes: vec![],
             client,
-            mode: DownloadMode::new(global_config, &self.config),
+            mode: DownloadMode::new(global_config, &config),
         };
 
         let mut episodes = vec![];
 
         for item in items {
             if let Some(mut ep) = Episode::new(item) {
-                let config = Config::new(global_config, &self.config, &podcast, &ep);
+                let config = Config::new(global_config, &config, &podcast, &ep);
                 ep.config = config;
                 episodes.push(ep);
             }
@@ -206,18 +198,7 @@ impl PodcastEntry {
 
         Ok(podcast)
     }
-}
 
-#[derive(Debug)]
-pub struct Podcast {
-    name: String, // The configured name in `podcasts.toml`.
-    xml: serde_json::Value,
-    episodes: Vec<Episode>,
-    client: Arc<reqwest::Client>,
-    mode: DownloadMode,
-}
-
-impl Podcast {
     pub fn name(&self) -> &str {
         &self.name
     }

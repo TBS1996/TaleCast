@@ -66,7 +66,7 @@ pub struct Episode {
 }
 
 impl Episode {
-    pub fn new(raw: RawEpisode, config: Config) -> Option<Self> {
+    pub fn new(raw: RawEpisode, index: usize, config: Config) -> Option<Self> {
         let title = raw.get_string("title")?;
         let enclosure = raw.get_val("enclosure")?;
         let url = enclosure
@@ -78,7 +78,6 @@ impl Episode {
             .and_then(|x| Some(x.as_str()?.to_string()));
         let published = utils::date_str_to_unix(raw.get_str("pubDate")?);
         let guid = raw.get_string("guid")?;
-        let index = 0;
 
         Self {
             title,

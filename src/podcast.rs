@@ -46,7 +46,7 @@ fn xml_to_value(xml: &str) -> Option<(RawPodcast, Vec<RawEpisode>)> {
 
     let items = std::mem::take(val.as_object_mut()?.get_mut("item")?.as_array_mut()?);
 
-    let episodes = items
+    let mut episodes = items
         .iter()
         .map(|item| {
             let mut new_item_map: Map<String, Value> = Map::new();
@@ -57,6 +57,8 @@ fn xml_to_value(xml: &str) -> Option<(RawPodcast, Vec<RawEpisode>)> {
             RawEpisode::new(new_item_map)
         })
         .collect::<Vec<RawEpisode>>();
+
+    episodes.sort_by_key(|episode| episode.published());
 
     Some((podcast, episodes))
 }
@@ -150,18 +152,23 @@ impl RawPodcast {
     pub fn new(raw: serde_json::Map<String, serde_json::Value>) -> Self {
         Self(raw)
     }
+
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        utils::val_to_str(self.0.get(key)?)
+    }
 }
 
 use crate::config::PodcastConfig;
 
 #[derive(Debug)]
 pub struct Podcast {
-    name: String, // The configured name in `podcasts.toml`.
     raw: RawPodcast,
     episodes: Vec<Episode>,
     client: Arc<reqwest::Client>,
     mode: DownloadMode,
 }
+
+use crate::config::EvalData;
 
 impl Podcast {
     pub async fn new(
@@ -176,42 +183,26 @@ impl Podcast {
             return Err("failed to download xml-file".to_string());
         };
 
-        let Some((channel, raw_episodes)) = xml_to_value(&xml_string) else {
+        let Some((raw_podcast, raw_episodes)) = xml_to_value(&xml_string) else {
             return Err("failed to parse xml".to_string());
         };
 
-        let mut podcast = Podcast {
-            name,
-            raw: channel,
-            episodes: vec![],
+        let episodes = raw_episodes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, episode)| {
+                let data = EvalData::new(&name, &raw_podcast, &episode);
+                let config = Config::new(global_config, &config, data);
+                Episode::new(episode, index, config)
+            })
+            .collect();
+
+        Ok(Podcast {
+            raw: raw_podcast,
+            episodes,
             client,
             mode: DownloadMode::new(global_config, &config),
-        };
-
-        let mut episodes = vec![];
-
-        for episode in raw_episodes {
-            let config = Config::new(global_config, &config, &podcast, &episode);
-            if let Some(ep) = Episode::new(episode, config) {
-                episodes.push(ep);
-            }
-        }
-
-        episodes.sort_by_key(|episode| episode.published);
-
-        let mut index = 0;
-        for episode in &mut episodes {
-            episode.index = index;
-            index += 1;
-        }
-
-        podcast.episodes = episodes;
-
-        Ok(podcast)
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
+        })
     }
 
     fn get_str<'a>(&'a self, key: &str) -> Option<&'a str> {
@@ -290,10 +281,6 @@ impl Podcast {
 
         ui.complete();
         paths
-    }
-
-    pub fn get_text_attribute(&self, key: &str) -> Option<&str> {
-        utils::val_to_str(self.raw.0.get(key)?)
     }
 
     fn pending_episodes(&self) -> Vec<&Episode> {

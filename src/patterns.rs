@@ -1,8 +1,6 @@
-use crate::episode::RawEpisode;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use crate::podcast::Podcast;
 use crate::utils;
 
 use regex::Regex;
@@ -97,7 +95,7 @@ impl DataPattern {
 }
 
 impl Evaluate for DataPattern {
-    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String {
+    fn evaluate(&self, data: EvalData) -> String {
         use chrono::TimeZone;
         use DataPatternType as Ty;
         let null = "<value not found>";
@@ -118,11 +116,11 @@ impl Evaluate for DataPattern {
                 let formatting = &self.data;
 
                 let datetime = chrono::Utc
-                    .timestamp_opt(episode.published().as_secs() as i64, 0)
+                    .timestamp_opt(data.episode.published().as_secs() as i64, 0)
                     .unwrap();
 
                 if formatting == "unix" {
-                    episode.published().as_secs().to_string()
+                    data.episode.published().as_secs().to_string()
                 } else {
                     datetime.format(formatting).to_string()
                 }
@@ -130,12 +128,12 @@ impl Evaluate for DataPattern {
             Ty::RssEpisode => {
                 let key = &self.data;
 
-                episode.get_str(&key).unwrap_or(null).to_string()
+                data.episode.get_str(&key).unwrap_or(null).to_string()
             }
             Ty::RssChannel => {
                 let key = &self.data;
 
-                podcast.get_text_attribute(&key).unwrap_or(null).to_string()
+                data.podcast.get_str(&key).unwrap_or(null).to_string()
             }
         }
     }
@@ -188,11 +186,11 @@ impl UnitPattern {
 }
 
 impl Evaluate for UnitPattern {
-    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String {
+    fn evaluate(&self, data: EvalData) -> String {
         match self {
-            Self::Guid => episode.guid(),
-            Self::Url => episode.url(),
-            Self::PodName => podcast.name().to_string(),
+            Self::Guid => data.episode.guid(),
+            Self::Url => data.episode.url(),
+            Self::PodName => data.pod_name.to_string(),
             Self::AppName => crate::APPNAME.to_string(),
             Self::Home => home(),
         }
@@ -209,24 +207,26 @@ fn home() -> String {
 }
 use std::path::PathBuf;
 
-pub trait Evaluate {
-    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String;
+use crate::config::EvalData;
 
-    fn path_eval(&self, podcast: &Podcast, episode: &RawEpisode) -> PathBuf {
-        let s = self.evaluate(podcast, episode);
+pub trait Evaluate {
+    fn evaluate(&self, data: EvalData) -> String;
+
+    fn path_eval(&self, data: EvalData) -> PathBuf {
+        let s = self.evaluate(data);
         PathBuf::from(s)
     }
 }
 
 impl Evaluate for FullPattern {
-    fn evaluate(&self, podcast: &Podcast, episode: &RawEpisode) -> String {
+    fn evaluate(&self, data: EvalData<'_>) -> String {
         let mut output = String::new();
 
         for segment in &self.0 {
             let text = match segment {
                 Segment::Text(text) => text.clone(),
-                Segment::Pattern(Pattern::Unit(pattern)) => pattern.evaluate(podcast, episode),
-                Segment::Pattern(Pattern::Data(pattern)) => pattern.evaluate(podcast, episode),
+                Segment::Pattern(Pattern::Unit(pattern)) => pattern.evaluate(data),
+                Segment::Pattern(Pattern::Data(pattern)) => pattern.evaluate(data),
             };
             output.push_str(&text);
         }

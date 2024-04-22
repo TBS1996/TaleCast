@@ -1,5 +1,7 @@
 use crate::episode::RawEpisode;
+use crate::patterns::Evaluate;
 use crate::patterns::FullPattern;
+use crate::podcast::RawPodcast;
 use crate::utils;
 use crate::utils::Unix;
 use regex::Regex;
@@ -89,6 +91,23 @@ fn default_id_pattern() -> String {
     "{guid}".to_string()
 }
 
+#[derive(Clone, Copy)]
+pub struct EvalData<'a> {
+    pub pod_name: &'a str,
+    pub podcast: &'a RawPodcast,
+    pub episode: &'a RawEpisode,
+}
+
+impl<'a> EvalData<'a> {
+    pub fn new(pod_name: &'a str, podcast: &'a RawPodcast, episode: &'a RawEpisode) -> Self {
+        Self {
+            pod_name,
+            podcast,
+            episode,
+        }
+    }
+}
+
 /// Full configuration for a specific podcast.
 ///
 /// Combines settings from [`GlobalConfig`] and [`PodcastConfig`].
@@ -105,15 +124,11 @@ pub struct Config {
     pub download_hook: Option<PathBuf>,
 }
 
-use crate::patterns::Evaluate;
-use crate::podcast::Podcast;
-
 impl Config {
     pub fn new(
         global_config: &GlobalConfig,
         podcast_config: &PodcastConfig,
-        podcast: &Podcast,
-        episode: &RawEpisode,
+        data: EvalData<'_>,
     ) -> Self {
         let podcast_config = podcast_config.to_owned();
         let id3_tags = {
@@ -183,12 +198,12 @@ impl Config {
 
         Config {
             url: url.clone(),
-            name_pattern: name_pattern.evaluate(podcast, episode),
-            id_pattern: id_pattern.evaluate(podcast, episode),
-            download_path: download_path.path_eval(podcast, episode),
-            partial_path: partial_path.clone().map(|p| p.path_eval(podcast, episode)),
-            tracker_path: tracker_path.path_eval(podcast, episode),
-            symlink: symlink.clone().map(|p| p.path_eval(podcast, episode)),
+            name_pattern: name_pattern.evaluate(data),
+            id_pattern: id_pattern.evaluate(data),
+            download_path: download_path.path_eval(data),
+            partial_path: partial_path.clone().map(|p| p.path_eval(data)),
+            tracker_path: tracker_path.path_eval(data),
+            symlink: symlink.clone().map(|p| p.path_eval(data)),
             id3_tags: id3_tags.clone(),
             download_hook: download_hook.clone(),
         }

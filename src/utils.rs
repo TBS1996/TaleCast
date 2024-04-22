@@ -430,12 +430,8 @@ pub fn val_to_url<'a>(val: &'a serde_json::Value) -> Option<&'a str> {
 
 pub fn parse_quoted_words(line: &str) -> Option<(String, String)> {
     let (key, val) = line.split_once(" ")?;
-    let mut key = key.to_string();
-    let mut val = val.to_string();
-    key.pop();
-    val.pop();
-    key.remove(0);
-    val.remove(0);
+    let key = trim_quotes(key);
+    let val = trim_quotes(val);
 
     Some((key, val))
 }

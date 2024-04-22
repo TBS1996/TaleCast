@@ -109,9 +109,10 @@ impl<'a> EvalData<'a> {
     }
 }
 
-/// Full configuration for a specific podcast.
+/// Full configuration for a specific podcast-episode.
 ///
 /// Combines settings from [`GlobalConfig`] and [`PodcastConfig`].
+/// Must be computed for every episode because config might contain patterns unique to episode.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub url: String,
@@ -155,29 +156,23 @@ impl Config {
             .download_path
             .unwrap_or_else(|| global_config.download_path.clone());
 
-        let download_path = FullPattern::from_str(&download_path_str).path_eval(data);
-        utils::create_dir(&download_path);
+        let download_path = FullPattern::direct_eval_dir(&download_path_str, data);
 
         let tracker_path = match podcast_config
             .tracker_path
             .into_val(global_config.tracker_path.as_ref())
         {
-            Some(tracker_path) => FullPattern::from_str(&tracker_path),
+            Some(tracker_path) => tracker_path,
             None => {
                 if download_path_str.ends_with('/') {
-                    let p = download_path_str + ".downloaded";
-                    FullPattern::from_str(&p)
+                    download_path_str + ".downloaded"
                 } else {
-                    let p = download_path_str + "/.downloaded";
-                    FullPattern::from_str(&p)
+                    download_path_str + "/.downloaded"
                 }
             }
-        }
-        .path_eval(data);
+        };
 
-        if let Some(path) = tracker_path.parent() {
-            utils::create_dir(&path);
-        }
+        let tracker_path = FullPattern::direct_eval_file(&tracker_path, data);
 
         let name_pattern = FullPattern::from_str(
             &podcast_config
@@ -197,20 +192,12 @@ impl Config {
         let symlink = podcast_config
             .symlink
             .or(global_config.symlink.clone())
-            .map(|str| FullPattern::from_str(&str).path_eval(data));
+            .map(|str| FullPattern::direct_eval_dir(str.as_ref(), data));
 
         let partial_path = podcast_config
             .partial_path
             .or(global_config.partial_path.clone())
-            .map(|s| FullPattern::from_str(&s).path_eval(data));
-
-        if let Some(path) = &partial_path {
-            utils::create_dir(&path);
-        }
-
-        if let Some(path) = &symlink {
-            utils::create_dir(&path);
-        }
+            .map(|str| FullPattern::direct_eval_dir(str.as_ref(), data));
 
         Config {
             url: url.clone(),
@@ -349,7 +336,7 @@ pub struct GlobalConfig {
     style: std::sync::Arc<IndicatifSettings>,
     user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "SearchSettings::is_default")]
-    pub search: SearchSettings,
+    search: SearchSettings,
     symlink: Option<String>,
 }
 
@@ -413,6 +400,10 @@ impl GlobalConfig {
 
     pub fn user_agent(&self) -> String {
         self.user_agent.clone().unwrap_or_else(default_user_agent)
+    }
+
+    pub fn search_settings(&self) -> &SearchSettings {
+        &self.search
     }
 
     pub fn default_path() -> PathBuf {

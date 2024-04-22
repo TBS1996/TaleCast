@@ -45,6 +45,24 @@ impl FullPattern {
 
         Self(segments)
     }
+
+    pub fn direct_eval(s: &str, data: EvalData<'_>) -> String {
+        Self::from_str(s).evaluate(data)
+    }
+
+    pub fn direct_eval_file(s: &str, data: EvalData<'_>) -> PathBuf {
+        let p = PathBuf::from(Self::direct_eval(s, data));
+        if let Some(path) = p.parent() {
+            utils::create_dir(&path);
+        }
+        p
+    }
+
+    pub fn direct_eval_dir(s: &str, data: EvalData<'_>) -> PathBuf {
+        let p = PathBuf::from(Self::direct_eval(s, data));
+        utils::create_dir(&p);
+        p
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -267,7 +267,7 @@ pub async fn search_podcasts(config: &config::GlobalConfig, query: String, catch
 
     eprintln!("Enter index of podcast to add");
     for (idx, res) in results.iter().enumerate() {
-        let line = replacer(res.clone(), &config.search.pattern());
+        let line = replacer(res.clone(), &config.search_settings().pattern());
         let line = format!("{}: {}", idx + 1, line);
         let line = truncate_string(&line, config.max_line_width(), true);
         println!("{}", line);

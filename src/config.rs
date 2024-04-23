@@ -192,8 +192,6 @@ impl Config {
 
         let id_pattern = FullPattern::from_str(&id_pattern).evaluate(data);
 
-        let url = podcast_config.url;
-
         let symlink = podcast_config
             .symlink
             .or(global_config.symlink.clone())
@@ -205,7 +203,7 @@ impl Config {
             .map(|str| FullPattern::direct_eval_dir(str.as_ref(), data));
 
         Config {
-            url: url.clone(),
+            url: podcast_config.url.clone(),
             name_pattern,
             id_pattern,
             download_path,
@@ -532,6 +530,14 @@ impl Default for DownloadMode {
     }
 }
 
+fn init_reqwest_client(config: &GlobalConfig) -> Arc<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(&config.user_agent())
+        .build()
+        .map(Arc::new)
+        .expect("error: failed to instantiate reqwest client")
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PodcastConfigs(HashMap<String, PodcastConfig>);
 
@@ -541,12 +547,7 @@ impl PodcastConfigs {
 
         let mp = MultiProgress::new();
         let global_config = Arc::new(global_config);
-
-        let client = reqwest::Client::builder()
-            .user_agent(&global_config.user_agent())
-            .build()
-            .map(Arc::new)
-            .expect("error: failed to instantiate reqwest client");
+        let client = init_reqwest_client(&global_config);
 
         let Some(longest_name) = self.longest_name() else {
             return vec![];
@@ -557,8 +558,8 @@ impl PodcastConfigs {
             .into_iter()
             .map(|(name, config)| {
                 let client = Arc::clone(&client);
-                let mut ui =
-                    DownloadBar::new(name.clone(), global_config.style(), &mp, longest_name);
+                let settings = global_config.style();
+                let mut ui = DownloadBar::new(name.clone(), settings, &mp, longest_name);
                 let global_config = Arc::clone(&global_config);
 
                 tokio::task::spawn(async move {
@@ -566,7 +567,7 @@ impl PodcastConfigs {
                         Ok(podcast) => podcast.sync(&mut ui).await,
                         Err(e) => {
                             ui.error(&e);
-                            return vec![];
+                            vec![]
                         }
                     }
                 })

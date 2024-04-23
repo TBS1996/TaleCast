@@ -267,7 +267,10 @@ impl Episode {
         }
 
         let path = {
-            let mut path = config.download_path.to_path_buf();
+            let mut path = config
+                .download_path
+                .to_path_buf()
+                .join(&self.partial_name());
             path.set_extension(extension);
             path
         };

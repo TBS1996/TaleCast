@@ -129,26 +129,31 @@ impl Podcast {
             return Err("failed to parse xml".to_string());
         };
 
-        let mut episodes = vec![];
-        for (index, episode) in raw_episodes.into_iter().enumerate() {
+        let mut episode_attrs = vec![];
+        for episode in &raw_episodes {
             if let Some(attrs) = EpisodeAttributes::new(episode.clone()) {
-                let data = EvalData::new(&name, &raw_podcast, &attrs);
-                let config = Config::new(global_config, &config, data);
-                let tags = tags::extract_tags_from_raw(&raw_podcast, &attrs).await;
-
-                let url = if let Some(url) = attrs.image().or(raw_podcast.image()) {
-                    Some(url.to_string())
-                } else {
-                    None
-                };
-
-                let mut episode = Episode::new(attrs, index, config, tags);
-                episode.image_url = url;
-                episodes.push(episode);
+                episode_attrs.push(attrs);
             }
         }
 
-        episodes.sort_by_key(|ep| ep.attrs.published);
+        episode_attrs.sort_by_key(|attr| attr.published());
+
+        let mut episodes = vec![];
+        for (index, attr) in episode_attrs.into_iter().enumerate() {
+            let data = EvalData::new(&name, &raw_podcast, &attr);
+            let config = Config::new(global_config, &config, data);
+            let tags = tags::extract_tags_from_raw(&raw_podcast, &attr).await;
+
+            let url = if let Some(url) = attr.image().or(raw_podcast.image()) {
+                Some(url.to_string())
+            } else {
+                None
+            };
+
+            let mut episode = Episode::new(attr, index, config, tags);
+            episode.image_url = url;
+            episodes.push(episode);
+        }
 
         Ok(Podcast {
             episodes,

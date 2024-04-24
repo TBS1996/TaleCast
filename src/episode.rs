@@ -144,17 +144,18 @@ impl Episode {
         index: usize,
         config: Config,
         tags: Option<id3::Tag>,
+        image_url: Option<String>,
     ) -> Self {
         Self {
             attrs,
             config,
             tags,
             index,
-            image_url: None,
+            image_url,
         }
     }
 
-    pub fn is_downloaded(&self) -> bool {
+    fn is_downloaded(&self) -> bool {
         let id = self.get_id();
         let path = self.tracker_path();
         let downloaded = DownloadedEpisodes::load(&path);
@@ -195,32 +196,32 @@ impl Episode {
     }
 
     /// Filename of episode when it's being downloaded.
-    pub fn partial_name(&self) -> String {
+    fn partial_name(&self) -> String {
         let file_name = sanitize_filename::sanitize(&self.attrs.guid);
         format!("{}.partial", file_name)
     }
 
-    pub fn get_id(&self) -> String {
+    fn get_id(&self) -> String {
         self.config.id_pattern.replace(" ", "_")
     }
 
-    pub fn tracker_path(&self) -> &Path {
+    fn tracker_path(&self) -> &Path {
         self.config.tracker_path.as_path()
     }
 
-    pub async fn download_and_process<'a>(
+    pub async fn download<'a>(
         &'a self,
         client: &reqwest::Client,
         ui: &DownloadBar,
     ) -> Result<DownloadedEpisode<'a>, String> {
-        let mut episode = self.download(client, ui).await?;
+        let mut episode = self.download_enclosure(client, ui).await?;
         episode.process().await?;
         episode.run_download_hook();
         episode.mark_downloaded();
         Ok(episode)
     }
 
-    pub async fn download<'a>(
+    async fn download_enclosure<'a>(
         &'a self,
         client: &reqwest::Client,
         ui: &DownloadBar,
@@ -283,7 +284,9 @@ impl Episode {
 
 pub struct DownloadedEpisode<'a> {
     inner: &'a Episode,
+    /// Where the episode is downloaded.
     path: PathBuf,
+    /// The handle to the process of an optional post-download hook.
     handle: Option<JoinHandle<()>>,
 }
 
@@ -294,6 +297,10 @@ impl<'a> DownloadedEpisode<'a> {
             path,
             handle: None,
         }
+    }
+
+    pub fn into_path(self) -> PathBuf {
+        self.path
     }
 
     pub fn mark_downloaded(&self) {
@@ -345,7 +352,7 @@ impl<'a> DownloadedEpisode<'a> {
         }
     }
 
-    pub fn file_name(&self) -> &str {
+    fn file_name(&self) -> &str {
         self.path.file_name().unwrap().to_str().unwrap()
     }
 
@@ -355,7 +362,7 @@ impl<'a> DownloadedEpisode<'a> {
         }
     }
 
-    pub fn run_download_hook(&mut self) {
+    fn run_download_hook(&mut self) {
         let Some(script_path) = self.inner.config.download_hook.clone() else {
             return;
         };
@@ -372,7 +379,7 @@ impl<'a> DownloadedEpisode<'a> {
         self.handle = Some(handle);
     }
 
-    pub fn make_symlink(&mut self) -> Result<(), String> {
+    fn make_symlink(&mut self) -> Result<(), String> {
         if let Some(symlink_path) = self.inner.config.symlink.as_ref() {
             let new_path = symlink_path.join(self.file_name());
             if self.path() == new_path {
@@ -391,7 +398,7 @@ impl<'a> DownloadedEpisode<'a> {
         Ok(())
     }
 
-    pub async fn process(&mut self) -> Result<(), String> {
+    async fn process(&mut self) -> Result<(), String> {
         self.rename()?;
         self.make_symlink()?;
         self.normalize_id3v2().await;
@@ -399,7 +406,7 @@ impl<'a> DownloadedEpisode<'a> {
         Ok(())
     }
 
-    pub fn rename(&mut self) -> Result<(), String> {
+    fn rename(&mut self) -> Result<(), String> {
         let new_name = &self.inner.config.name_pattern;
         let new_name = sanitize_filename::sanitize(new_name);
 

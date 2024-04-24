@@ -129,14 +129,15 @@ impl Podcast {
             return Err("failed to parse xml".to_string());
         };
 
-        let mut episode_attrs = vec![];
-        for episode in &raw_episodes {
-            if let Some(attrs) = EpisodeAttributes::new(episode.clone()) {
-                episode_attrs.push(attrs);
-            }
-        }
+        let episode_attrs = {
+            let mut attrs: Vec<_> = raw_episodes
+                .into_iter()
+                .filter_map(EpisodeAttributes::new)
+                .collect();
 
-        episode_attrs.sort_by_key(|attr| attr.published());
+            attrs.sort_by_key(|attr| attr.published());
+            attrs
+        };
 
         let mut episodes = vec![];
         for (index, attr) in episode_attrs.into_iter().enumerate() {
@@ -144,14 +145,12 @@ impl Podcast {
             let config = Config::new(global_config, &config, data);
             let tags = tags::extract_tags_from_raw(&raw_podcast, &attr).await;
 
-            let url = if let Some(url) = attr.image().or(raw_podcast.image()) {
-                Some(url.to_string())
-            } else {
-                None
-            };
+            let url = attr
+                .image()
+                .or(raw_podcast.image())
+                .map(|url| url.to_string());
 
-            let mut episode = Episode::new(attr, index, config, tags);
-            episode.image_url = url;
+            let episode = Episode::new(attr, index, config, tags, url);
             episodes.push(episode);
         }
 
@@ -171,7 +170,7 @@ impl Podcast {
         for (index, episode) in episodes.iter().enumerate() {
             ui.begin_download(&episode, index, episodes.len());
 
-            match episode.download_and_process(&self.client, ui).await {
+            match episode.download(&self.client, ui).await {
                 Ok(downloaded_episode) => downloaded.push(downloaded_episode),
                 Err(e) => {
                     ui.error(&e);
@@ -183,9 +182,9 @@ impl Podcast {
         let mut paths = vec![];
 
         ui.hook_status();
-        for episode in &mut downloaded {
+        for mut episode in downloaded {
             episode.await_handle().await;
-            paths.push(episode.path().to_path_buf());
+            paths.push(episode.into_path());
         }
 
         ui.complete();

@@ -175,9 +175,40 @@ enum Action {
     },
 }
 
+use chrono::Local;
+use fern::Dispatch;
+use log::LevelFilter;
+
+fn setup_logging() -> Result<(), fern::InitError> {
+    // Set up the base configuration
+    let base_config = Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{} [{}] {}",
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                message
+            ))
+        })
+        .level(LevelFilter::Debug); // Set the minimum level of logging
+
+    let log_dir = PathBuf::from("/tmp/talecast");
+    utils::create_dir(&log_dir);
+    let log_path = log_dir.join(chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string());
+
+    // Set up the file logger
+    let file_config = base_config.chain(fern::log_file(&log_path)?);
+
+    // Apply the configuration
+    file_config.apply()?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    setup_logging().unwrap();
 
     match Action::from(args) {
         Action::Import { path, catch_up } => opml::import(&path, catch_up),

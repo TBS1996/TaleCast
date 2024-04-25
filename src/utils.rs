@@ -152,7 +152,14 @@ pub async fn download_text(
     url: &str,
     ui: &DownloadBar,
 ) -> Option<String> {
-    let response = client.get(url).send().await.ok()?;
+    ui.log_info("downloading podcast xml");
+    let response = match client.get(url).send().await {
+        Ok(res) => res,
+        Err(e) => {
+            ui.log_error(&format!("connection failure: {:?}", e));
+            return None;
+        }
+    };
 
     let total_size = response.content_length().unwrap_or(0);
 
@@ -168,7 +175,13 @@ pub async fn download_text(
         ui.set_progress(downloaded);
     }
 
-    String::from_utf8(buffer).ok()
+    match String::from_utf8(buffer) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            ui.log_error(&format!("failed to decode xml: {:?}", e));
+            None
+        }
+    }
 }
 
 pub fn edit_file(path: &Path) {

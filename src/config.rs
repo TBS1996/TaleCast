@@ -97,6 +97,7 @@ fn default_id_pattern() -> String {
 
 use crate::episode::EpisodeAttributes;
 
+/// Data needed to evaluate a [`FullPattern`].
 #[derive(Clone, Copy)]
 pub struct EvalData<'a> {
     pub pod_name: &'a str,
@@ -543,7 +544,8 @@ pub struct PodcastConfigs(HashMap<String, PodcastConfig>);
 
 impl PodcastConfigs {
     pub async fn sync(self, global_config: GlobalConfig) -> Vec<PathBuf> {
-        eprintln!("syncing {} podcasts", &self.0.len());
+        eprintln!("syncing {} podcasts", self.len());
+        log::info!("syncing podcasts..");
 
         let mp = MultiProgress::new();
         let global_config = Arc::new(global_config);
@@ -583,39 +585,31 @@ impl PodcastConfigs {
     }
 
     pub fn load() -> Self {
-        let path = Self::path();
-
-        let Ok(config_str) = fs::read_to_string(&path) else {
+        let Ok(config_str) = fs::read_to_string(&Self::path()) else {
             eprintln!("error: failed to read podcasts.toml file");
             process::exit(1);
         };
 
-        let map = match toml::from_str(&config_str) {
-            Ok(s) => s,
+        match toml::from_str(&config_str) {
+            Ok(s) => Self(s),
             Err(e) => {
                 eprintln!("failed to deserialize podcasts.toml file\n{:?}", e);
                 process::exit(1);
             }
-        };
-
-        PodcastConfigs(map)
+        }
     }
 
-    pub fn into_inner(self) -> HashMap<String, PodcastConfig> {
+    fn into_inner(self) -> HashMap<String, PodcastConfig> {
         self.0
     }
 
-    pub fn filter(self, filter: Option<Regex>) -> Self {
-        let inner = self
-            .0
-            .into_iter()
-            .filter(|(name, _)| match filter {
-                Some(ref filter) => filter.is_match(&name),
-                None => true,
-            })
-            .collect();
+    pub fn filter(mut self, filter: Option<Regex>) -> Self {
+        self.0.retain(|name, _| match filter {
+            Some(ref filter) => filter.is_match(&name),
+            None => true,
+        });
 
-        Self(inner)
+        self
     }
 
     pub fn assert_not_empty(self) -> Self {

@@ -158,16 +158,11 @@ impl Episode {
     fn is_downloaded(&self) -> bool {
         let id = self.get_id();
         let path = self.tracker_path();
-        let downloaded = DownloadedEpisodes::load(&path);
-        downloaded.contains_episode(&id)
+        DownloadedEpisodes::load(&path).contains_episode(&id)
     }
 
     pub fn should_download(&self, mode: &DownloadMode, episode_qty: usize) -> bool {
-        if self.is_downloaded() {
-            return false;
-        };
-
-        match mode {
+        let passed_filter = match mode {
             DownloadMode::Backlog { start, interval } => {
                 let time_passed = utils::current_unix() - *start;
                 let intervals_passed = time_passed.as_secs() / interval.as_secs();
@@ -192,7 +187,9 @@ impl Episode {
 
                 !max_time_exceeded && !max_episodes_exceeded && !episode_too_old
             }
-        }
+        };
+
+        passed_filter && !self.is_downloaded()
     }
 
     /// Filename of episode when it's being downloaded.
@@ -214,8 +211,10 @@ impl Episode {
         client: &reqwest::Client,
         ui: &DownloadBar,
     ) -> Result<DownloadedEpisode<'a>, String> {
-        let mut episode = self.download_enclosure(client, ui).await?;
-        episode.process().await?;
+        ui.log_info("downloading episode");
+        let audio_file = self.download_enclosure(client, ui).await?;
+        let mut episode = DownloadedEpisode::new(self, audio_file);
+        episode.process(ui).await?;
         episode.run_download_hook();
         episode.mark_downloaded();
         Ok(episode)
@@ -225,7 +224,7 @@ impl Episode {
         &'a self,
         client: &reqwest::Client,
         ui: &DownloadBar,
-    ) -> Result<DownloadedEpisode<'a>, String> {
+    ) -> Result<PathBuf, String> {
         let config = &self.config;
 
         let partial_path = config
@@ -278,7 +277,7 @@ impl Episode {
 
         fs::rename(partial_path, &path).map_err(|_| "failed to rename episode file".to_string())?;
 
-        Ok(DownloadedEpisode::new(self, path))
+        Ok(path)
     }
 }
 
@@ -317,7 +316,7 @@ impl<'a> DownloadedEpisode<'a> {
         &self.path
     }
 
-    pub async fn normalize_id3v2(&self) {
+    pub async fn normalize_id3v2(&self, ui: &DownloadBar) {
         use id3::TagLike;
         if self.path.extension().is_some_and(|ext| ext == "mp3") {
             if let Some(xml_tags) = &self.inner.tags {
@@ -343,7 +342,9 @@ impl<'a> DownloadedEpisode<'a> {
                                 .await
                         {
                             file_tags.add_frame(frame);
-                        }
+                        } else {
+                            ui.log_warn(&format!("failed to fetch image from url: {:?}", img_url));
+                        };
                     }
                 }
 
@@ -398,10 +399,10 @@ impl<'a> DownloadedEpisode<'a> {
         Ok(())
     }
 
-    async fn process(&mut self) -> Result<(), String> {
+    async fn process(&mut self, ui: &DownloadBar) -> Result<(), String> {
         self.rename()?;
         self.make_symlink()?;
-        self.normalize_id3v2().await;
+        self.normalize_id3v2(ui).await;
 
         Ok(())
     }

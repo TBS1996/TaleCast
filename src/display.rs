@@ -37,6 +37,18 @@ impl DownloadBar {
         }
     }
 
+    pub fn log_info(&self, msg: &str) {
+        log::info!("{}: {}", &self.podcast_name, msg);
+    }
+
+    pub fn log_warn(&self, msg: &str) {
+        log::warn!("{}: {}", &self.podcast_name, msg);
+    }
+
+    pub fn log_error(&self, msg: &str) {
+        log::error!("{}: {}", &self.podcast_name, msg);
+    }
+
     fn prefix(&self) -> String {
         let pad_len = self.longest_podcast_name + 2 - self.podcast_name.chars().count();
         let padding: String = std::iter::repeat(' ').take(pad_len).collect();
@@ -118,6 +130,7 @@ impl DownloadBar {
         }
 
         if let Some(pb) = &self.bar {
+            self.log_error(msg);
             let template = self.settings.error_template();
             self.set_template(&template);
             let msg = self.msg_with_prefix(msg);

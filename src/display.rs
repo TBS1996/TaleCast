@@ -37,16 +37,24 @@ impl DownloadBar {
         }
     }
 
-    pub fn log_info(&self, msg: &str) {
-        log::info!("{}: {}", &self.podcast_name, msg);
+    pub fn log_debug(&self, msg: impl Into<String>) {
+        log::debug!("{}: {}", &self.podcast_name, msg.into());
     }
 
-    pub fn log_warn(&self, msg: &str) {
-        log::warn!("{}: {}", &self.podcast_name, msg);
+    pub fn log_trace(&self, msg: impl Into<String>) {
+        log::trace!("{}: {}", &self.podcast_name, msg.into());
     }
 
-    pub fn log_error(&self, msg: &str) {
-        log::error!("{}: {}", &self.podcast_name, msg);
+    pub fn log_info(&self, msg: impl Into<String>) {
+        log::info!("{}: {}", &self.podcast_name, msg.into());
+    }
+
+    pub fn log_warn(&self, msg: impl Into<String>) {
+        log::warn!("{}: {}", &self.podcast_name, msg.into());
+    }
+
+    pub fn log_error(&self, msg: impl Into<String>) {
+        log::error!("{}: {}", &self.podcast_name, msg.into());
     }
 
     fn prefix(&self) -> String {

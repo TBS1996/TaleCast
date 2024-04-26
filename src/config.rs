@@ -1,4 +1,5 @@
 use crate::display::DownloadBar;
+use crate::episode;
 use crate::patterns::Evaluate;
 use crate::patterns::FullPattern;
 use crate::podcast::Podcast;
@@ -16,6 +17,8 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time;
 
@@ -95,18 +98,20 @@ fn default_id_pattern() -> String {
     "{guid}".to_string()
 }
 
-use crate::episode::EpisodeAttributes;
-
 /// Data needed to evaluate a [`FullPattern`].
 #[derive(Clone, Copy)]
 pub struct EvalData<'a> {
     pub pod_name: &'a str,
     pub podcast: &'a RawPodcast,
-    pub episode: &'a EpisodeAttributes,
+    pub episode: &'a episode::Attributes,
 }
 
 impl<'a> EvalData<'a> {
-    pub fn new(pod_name: &'a str, podcast: &'a RawPodcast, episode: &'a EpisodeAttributes) -> Self {
+    pub fn new(
+        pod_name: &'a str,
+        podcast: &'a RawPodcast,
+        episode: &'a episode::Attributes,
+    ) -> Self {
         Self {
             pod_name,
             podcast,
@@ -337,11 +342,13 @@ pub struct GlobalConfig {
     download_hook: Option<PathBuf>,
     tracker_path: Option<String>,
     #[serde(default, skip_serializing_if = "IndicatifSettings::is_default")]
-    style: std::sync::Arc<IndicatifSettings>,
+    style: Arc<IndicatifSettings>,
     user_agent: Option<String>,
     #[serde(default, skip_serializing_if = "SearchSettings::is_default")]
     search: SearchSettings,
     symlink: Option<String>,
+    #[serde(default, skip_serializing_if = "LogConfig::is_default")]
+    log: Arc<LogConfig>,
 }
 
 impl GlobalConfig {
@@ -355,26 +362,30 @@ impl GlobalConfig {
     /// Note that this means any comments will unfortunately be removed.
     pub fn load() -> Self {
         let path = Self::default_path();
+        if !path.exists() {
+            let config = Self::default();
+            config.save();
+            return config;
+        }
 
-        let config: Self = fs::read_to_string(&path)
-            .ok()
-            .and_then(|str| toml::from_str(&str).ok())
-            .unwrap_or_default();
+        let str = match fs::read_to_string(&path) {
+            Ok(str) => str,
+            Err(e) => {
+                eprintln!("unable to read config file: {:?}", e);
+                process::exit(1);
+            }
+        };
+
+        let config: Self = match toml::from_str(&str) {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("unable to parse config file: {:?}", e);
+                process::exit(1);
+            }
+        };
 
         config.save();
         config
-    }
-
-    pub fn style(&self) -> Arc<IndicatifSettings> {
-        Arc::clone(&self.style)
-    }
-
-    /// Serializes the config to the default path.
-    pub fn save(&self) {
-        let path = Self::default_path();
-        let str = toml::to_string(self).unwrap();
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(str.as_bytes()).unwrap();
     }
 
     /// For using a global config from a path specified as a commandline argument.
@@ -400,6 +411,22 @@ impl GlobalConfig {
                 process::exit(1);
             }
         }
+    }
+
+    pub fn style(&self) -> Arc<IndicatifSettings> {
+        Arc::clone(&self.style)
+    }
+
+    pub fn log(&self) -> Arc<LogConfig> {
+        Arc::clone(&self.log)
+    }
+
+    /// Serializes the config to the default path.
+    pub fn save(&self) {
+        let path = Self::default_path();
+        let str = toml::to_string(self).unwrap();
+        let mut f = std::fs::File::create(&path).expect("unable to create config file");
+        f.write_all(str.as_bytes()).unwrap();
     }
 
     pub fn user_agent(&self) -> String {
@@ -437,6 +464,7 @@ impl Default for GlobalConfig {
             tracker_path: None,
             style: Default::default(),
             search: Default::default(),
+            log: Default::default(),
             symlink: None,
             user_agent: None,
             partial_path: None,
@@ -543,7 +571,7 @@ fn init_reqwest_client(config: &GlobalConfig) -> Arc<reqwest::Client> {
 pub struct PodcastConfigs(HashMap<String, PodcastConfig>);
 
 impl PodcastConfigs {
-    pub async fn sync(self, global_config: GlobalConfig) -> Vec<PathBuf> {
+    pub async fn sync(self, global_config: GlobalConfig, log_file: &Path) -> Vec<PathBuf> {
         eprintln!("syncing {} podcasts", self.len());
         log::info!("syncing podcasts..");
 
@@ -555,6 +583,8 @@ impl PodcastConfigs {
             return vec![];
         };
 
+        let error_occured = Arc::new(AtomicBool::new(false));
+
         let futures = self
             .into_inner()
             .into_iter()
@@ -563,12 +593,14 @@ impl PodcastConfigs {
                 let settings = global_config.style();
                 let mut ui = DownloadBar::new(name.clone(), settings, &mp, longest_name);
                 let global_config = Arc::clone(&global_config);
+                let val = error_occured.clone();
 
                 tokio::task::spawn(async move {
                     match Podcast::new(name, config, &global_config, client, &ui).await {
                         Ok(podcast) => podcast.sync(&mut ui).await,
                         Err(e) => {
                             ui.error(&e);
+                            val.store(true, Ordering::SeqCst);
                             vec![]
                         }
                     }
@@ -576,12 +608,23 @@ impl PodcastConfigs {
             })
             .collect::<Vec<_>>();
 
-        future::join_all(futures)
+        let paths: Vec<PathBuf> = future::join_all(futures)
             .await
             .into_iter()
             .filter_map(Result::ok)
             .flatten()
-            .collect()
+            .collect();
+
+        if let Some(p) = global_config.log().path() {
+            if true || error_occured.load(Ordering::SeqCst) {
+                utils::create_dir(p);
+                let log_name = log_file.file_name().unwrap();
+                let new_path = p.join(log_name);
+                fs::rename(log_file, new_path).unwrap();
+            }
+        }
+
+        paths
     }
 
     pub fn load() -> Self {
@@ -830,5 +873,30 @@ impl PodcastConfig {
         self.earliest_date = ConfigOption::Enabled(current_date.clone());
 
         true
+    }
+}
+
+#[derive(Serialize, Default, Deserialize, Debug, PartialEq, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct LogConfig {
+    path: Option<PathBuf>,
+    level: Option<log::LevelFilter>,
+    third_party: Option<bool>,
+}
+
+impl LogConfig {
+    pub fn level(&self) -> log::LevelFilter {
+        self.level.unwrap_or(log::LevelFilter::Trace)
+    }
+    pub fn third_party(&self) -> bool {
+        self.third_party.unwrap_or(true)
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    fn is_default(&self) -> bool {
+        self == &Self::default()
     }
 }

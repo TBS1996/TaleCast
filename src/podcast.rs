@@ -3,6 +3,7 @@ use crate::config::EvalData;
 use crate::config::PodcastConfig;
 use crate::config::{Config, GlobalConfig};
 use crate::display::DownloadBar;
+use crate::episode;
 use crate::episode::Episode;
 use crate::episode::RawEpisode;
 use crate::tags;
@@ -122,8 +123,6 @@ pub struct Podcast {
     mode: DownloadMode,
 }
 
-use crate::episode::EpisodeAttributes;
-
 impl Podcast {
     pub async fn new(
         name: String,
@@ -143,10 +142,17 @@ impl Podcast {
         };
 
         let episode_attrs = {
-            let mut attrs: Vec<_> = raw_episodes
-                .into_iter()
-                .filter_map(EpisodeAttributes::new)
-                .collect();
+            let mut attrs = vec![];
+
+            for episode in raw_episodes {
+                ui.log_trace("parsing attributes from raw episode");
+                match episode::Attributes::new(episode) {
+                    Ok(attr) => attrs.push(attr),
+                    Err(e) => {
+                        ui.log_debug(e);
+                    }
+                }
+            }
 
             attrs.sort_by_key(|attr| attr.published());
             attrs
@@ -154,7 +160,7 @@ impl Podcast {
 
         let mut episodes = vec![];
         for (index, attr) in episode_attrs.into_iter().enumerate() {
-            let tags = tags::extract_tags_from_raw(&raw_podcast, &attr).await;
+            let tags = tags::extract_tags_from_raw(&raw_podcast, &attr, ui).await;
             let config = {
                 let data = EvalData::new(&name, &raw_podcast, &attr);
                 Config::new(global_config, &config, data)
@@ -162,6 +168,7 @@ impl Podcast {
 
             let url = attr
                 .image()
+                .ok()
                 .or(raw_podcast.image())
                 .map(ToString::to_string);
 
@@ -201,7 +208,7 @@ impl Podcast {
 
         ui.hook_status();
         for mut episode in downloaded {
-            episode.await_handle().await;
+            episode.await_handle(ui).await;
             paths.push(episode.into_path());
         }
 

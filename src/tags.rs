@@ -1,17 +1,20 @@
-use crate::episode::EpisodeAttributes;
+use crate::display::DownloadBar;
+use crate::episode;
 use crate::podcast::RawPodcast;
 use chrono::Datelike;
 use id3::TagLike;
 
 pub async fn extract_tags_from_raw(
     podcast: &RawPodcast,
-    episode: &EpisodeAttributes,
+    episode: &episode::Attributes,
+    ui: &DownloadBar,
 ) -> Option<id3::Tag> {
     let mut tags = id3::Tag::new();
 
     tags.set_title(episode.title());
 
-    if let Some(author) = episode.author() {
+    if let Ok(author) = episode.author() {
+        ui.log_trace("extracting author tag");
         tags.set_artist(author);
     }
 
@@ -19,8 +22,9 @@ pub async fn extract_tags_from_raw(
 
     tags.set_genre("podcast");
 
-    if let Some(episode) = episode.itunes_episode() {
+    if let Ok(episode) = episode.itunes_episode() {
         if let Ok(episode) = episode.parse::<u32>() {
+            ui.log_trace("extracting itunes track number");
             tags.set_track(episode);
         }
     }
@@ -30,11 +34,13 @@ pub async fn extract_tags_from_raw(
         .year();
     tags.set_year(year);
 
-    if let Some(desc) = podcast.copyright() {
-        tags.set_text(Id3Tag::COPYRIGHT, desc);
+    if let Some(copyright) = podcast.copyright() {
+        ui.log_trace("extracting copyright tag");
+        tags.set_text(Id3Tag::COPYRIGHT, copyright);
     }
 
-    if let Some(desc) = episode.description() {
+    if let Ok(desc) = episode.description() {
+        ui.log_trace("extracting description tag");
         tags.set_text(Id3Tag::DESCRIPTION, desc);
     }
 
@@ -43,7 +49,10 @@ pub async fn extract_tags_from_raw(
         strs.push(cat);
     }
 
-    tags.set_text_values(Id3Tag::PODCASTCATEGORY, strs);
+    if !strs.is_empty() {
+        ui.log_trace("extracting podcast categories tag");
+        tags.set_text_values(Id3Tag::PODCASTCATEGORY, strs);
+    }
 
     use chrono::TimeZone;
     use chrono::Timelike;
@@ -63,17 +72,20 @@ pub async fn extract_tags_from_raw(
     tags.set_date_released(ts);
 
     if let Some(language) = podcast.language() {
+        ui.log_trace("extracting language tag");
         tags.set_text(Id3Tag::LANGUAGE, language);
     }
 
-    if let Some(dur) = episode.itunes_duration() {
+    if let Ok(dur) = episode.itunes_duration() {
         if let Ok(secs) = dur.parse::<u32>() {
+            ui.log_trace("extracting itunes duration tag");
             let millis = secs * 1000;
             tags.set_text(Id3Tag::DURATION, millis.to_string());
         }
     }
 
     if let Some(author) = podcast.author() {
+        ui.log_trace("extracting publisher tag");
         tags.set_text(Id3Tag::PUBLISHER, author);
     }
 

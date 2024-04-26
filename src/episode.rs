@@ -1,9 +1,11 @@
+use crate::cache;
 use crate::config::Config;
 use crate::config::DownloadMode;
 use crate::display::DownloadBar;
 use crate::download_tracker::DownloadedEpisodes;
 use crate::utils;
 use futures_util::StreamExt;
+use std::cmp;
 use std::fs;
 use std::io::Seek;
 use std::io::Write as IOWrite;
@@ -15,20 +17,28 @@ use tokio::task::JoinHandle;
 pub trait XmlWrapper {
     fn inner(&self) -> &serde_json::Map<String, serde_json::Value>;
 
-    fn get_str(&self, key: &str) -> Option<&str> {
-        utils::val_to_str(self.inner().get(key)?)
+    fn get_str(&self, key: &str) -> Result<&str, String> {
+        let val = self.get_val(key)?;
+
+        utils::val_to_str(val).ok_or_else(|| "value could not be parsed as string".into())
     }
 
-    fn get_url(&self, key: &str) -> Option<&str> {
-        utils::val_to_url(self.inner().get(key)?)
+    fn get_url(&self, key: &str) -> Result<&str, String> {
+        let val = self.get_val(key)?;
+        match utils::val_to_url(val) {
+            Some(val) => Ok(val),
+            None => return Err("failed to parse val as url".to_string()),
+        }
     }
 
-    fn get_val(&self, key: &str) -> Option<&serde_json::Value> {
-        self.inner().get(key)
+    fn get_val(&self, key: &str) -> Result<&serde_json::Value, String> {
+        self.inner()
+            .get(key)
+            .ok_or_else(|| format!("missing key: {}", key))
     }
 
-    fn get_string(&self, key: &str) -> Option<String> {
-        self.get_str(key).map(str::to_owned)
+    fn get_string(&self, key: &str) -> Result<String, String> {
+        self.get_str(key).map(|s| s.to_string())
     }
 }
 
@@ -48,7 +58,7 @@ impl RawEpisode {
 }
 
 #[derive(Debug, Clone)]
-pub struct EpisodeAttributes {
+pub struct Attributes {
     pub title: String,
     pub url: String,
     pub mime: Option<String>,
@@ -57,22 +67,26 @@ pub struct EpisodeAttributes {
     pub raw: RawEpisode,
 }
 
-impl EpisodeAttributes {
-    pub fn new(raw: RawEpisode) -> Option<Self> {
+impl Attributes {
+    pub fn new(raw: RawEpisode) -> Result<Self, String> {
         let title = raw.get_string("title")?;
         let enclosure = raw.get_val("enclosure")?;
+
         let url = enclosure
             .get("@url")
-            .and_then(|x| Some(x.as_str()?.to_string()))?;
+            .ok_or_else(|| "url not found".to_string())?
+            .to_string();
+        let url = utils::trim_quotes(&url);
 
         let mime = enclosure
             .get("@type")
             .and_then(|x| Some(x.as_str()?.to_string()));
+
         let published = raw.get_str("pubDate")?;
         let published = utils::date_str_to_unix(published)?;
         let guid = raw.get_string("guid")?;
 
-        Some(Self {
+        Ok(Self {
             title,
             url,
             mime,
@@ -102,28 +116,28 @@ impl EpisodeAttributes {
         &self.url
     }
 
-    pub fn get_str(&self, key: &str) -> Option<&str> {
+    pub fn get_str(&self, key: &str) -> Result<&str, String> {
         self.raw.get_str(key)
     }
 
-    pub fn image(&self) -> Option<&str> {
+    pub fn image(&self) -> Result<&str, String> {
         let key = "itunes:image";
         self.raw.get_url(key)
     }
-    pub fn author(&self) -> Option<&str> {
+    pub fn author(&self) -> Result<&str, String> {
         self.get_str("author")
     }
 
-    pub fn description(&self) -> Option<&str> {
+    pub fn description(&self) -> Result<&str, String> {
         self.get_str("description")
     }
 
-    pub fn itunes_episode(&self) -> Option<&str> {
+    pub fn itunes_episode(&self) -> Result<&str, String> {
         let key = "itunes:episode";
         self.get_str(&key)
     }
 
-    pub fn itunes_duration(&self) -> Option<&str> {
+    pub fn itunes_duration(&self) -> Result<&str, String> {
         let key = "itunes:duration";
         self.get_str(&key)
     }
@@ -134,13 +148,13 @@ pub struct Episode {
     pub config: Config,
     pub tags: Option<id3::Tag>,
     pub index: usize,
-    pub attrs: EpisodeAttributes,
+    pub attrs: Attributes,
     pub image_url: Option<String>,
 }
 
 impl Episode {
     pub fn new(
-        attrs: EpisodeAttributes,
+        attrs: Attributes,
         index: usize,
         config: Config,
         tags: Option<id3::Tag>,
@@ -153,6 +167,32 @@ impl Episode {
             index,
             image_url,
         }
+    }
+
+    const TITLELEN: usize = 30;
+
+    pub fn _log_error(&self, ui: &DownloadBar, msg: impl Into<String>) {
+        let ep_name = utils::truncate_string(self.attrs.title(), Self::TITLELEN, true);
+        let msg = format!("{}: {}", ep_name, msg.into());
+        ui.log_error(msg);
+    }
+
+    pub fn log_warn(&self, ui: &DownloadBar, msg: impl Into<String>) {
+        let ep_name = utils::truncate_string(self.attrs.title(), Self::TITLELEN, true);
+        let msg = format!("{}: {}", ep_name, msg.into());
+        ui.log_warn(msg);
+    }
+
+    pub fn log_trace(&self, ui: &DownloadBar, msg: impl Into<String>) {
+        let ep_name = utils::truncate_string(self.attrs.title(), Self::TITLELEN, true);
+        let msg = format!("{}: {}", ep_name, msg.into());
+        ui.log_trace(msg);
+    }
+
+    pub fn log_debug(&self, ui: &DownloadBar, msg: impl Into<String>) {
+        let ep_name = utils::truncate_string(self.attrs.title(), Self::TITLELEN, true);
+        let msg = format!("{}: {}", ep_name, msg.into());
+        ui.log_debug(msg);
     }
 
     fn is_downloaded(&self) -> bool {
@@ -206,17 +246,21 @@ impl Episode {
         self.config.tracker_path.as_path()
     }
 
+    fn into_downloaded(&self, path: PathBuf) -> DownloadedEpisode<'_> {
+        DownloadedEpisode::new(self, path)
+    }
+
     pub async fn download<'a>(
         &'a self,
         client: &reqwest::Client,
         ui: &DownloadBar,
     ) -> Result<DownloadedEpisode<'a>, String> {
-        ui.log_info("downloading episode");
+        self.log_debug(ui, "downloading episode");
         let audio_file = self.download_enclosure(client, ui).await?;
-        let mut episode = DownloadedEpisode::new(self, audio_file);
+        let mut episode = self.into_downloaded(audio_file);
         episode.process(ui).await?;
-        episode.run_download_hook();
-        episode.mark_downloaded();
+        episode.run_download_hook(ui);
+        episode.mark_downloaded()?;
         Ok(episode)
     }
 
@@ -243,6 +287,7 @@ impl Episode {
             .seek(std::io::SeekFrom::End(0))
             .map_err(|_| "file error".to_string())?;
 
+        self.log_trace(ui, format!("connecting to url: {:?}", self.as_ref().url()));
         let response = client
             .get(self.as_ref().url())
             .header(reqwest::header::RANGE, format!("bytes={}-", downloaded))
@@ -262,7 +307,7 @@ impl Episode {
             let chunk = item.map_err(|_| "failed to load chunk".to_string())?;
             file.write_all(&chunk)
                 .map_err(|_| "failed to write chunk to file".to_string())?;
-            downloaded = std::cmp::min(downloaded + (chunk.len() as u64), total_size);
+            downloaded = cmp::min(downloaded + (chunk.len() as u64), total_size);
             ui.set_progress(downloaded);
         }
 
@@ -302,10 +347,10 @@ impl<'a> DownloadedEpisode<'a> {
         self.path
     }
 
-    pub fn mark_downloaded(&self) {
+    pub fn mark_downloaded(&self) -> Result<(), String> {
         let id = self.inner.config.id_pattern.replace(" ", "_");
         let path = self.inner.config.tracker_path.as_path();
-        DownloadedEpisodes::append(&path, &id, self);
+        DownloadedEpisodes::append(&path, &id, self)
     }
 
     pub fn inner(&self) -> &Episode {
@@ -319,12 +364,15 @@ impl<'a> DownloadedEpisode<'a> {
     pub async fn normalize_id3v2(&self, ui: &DownloadBar) {
         use id3::TagLike;
         if self.path.extension().is_some_and(|ext| ext == "mp3") {
+            self.inner.log_trace(ui, "normalizing id3 tags");
             if let Some(xml_tags) = &self.inner.tags {
                 let mut file_tags = id3::Tag::read_from_path(&self.path()).unwrap_or_default();
 
                 for frame in xml_tags.frames() {
                     if !file_tags.get(frame.id()).is_some() {
                         file_tags.add_frame(frame.to_owned());
+                        self.inner
+                            .log_trace(ui, format!("adding frame: {:?}", &frame));
                     }
                 }
 
@@ -338,35 +386,48 @@ impl<'a> DownloadedEpisode<'a> {
                 {
                     if let Some(img_url) = self.inner.image_url.as_ref() {
                         if let Some(frame) =
-                            crate::cache::get_image(img_url, id3::frame::PictureType::CoverFront)
-                                .await
+                            cache::get_image(img_url, id3::frame::PictureType::CoverFront, ui).await
                         {
                             file_tags.add_frame(frame);
+                            self.inner
+                                .log_debug(ui, "added cover image to podcast episode");
                         } else {
-                            ui.log_warn(&format!("failed to fetch image from url: {:?}", img_url));
+                            self.inner.log_warn(
+                                ui,
+                                format!("failed to fetch image from url: {:?}", img_url),
+                            );
                         };
                     }
                 }
 
-                let _ = file_tags.write_to_path(&self.path(), id3::Version::Id3v24);
+                if let Err(e) = file_tags.write_to_path(&self.path(), id3::Version::Id3v24) {
+                    ui.log_error(format!("failed to write tags to file: {:?}", e));
+                };
             }
-        }
+        } else {
+            self.inner
+                .log_trace(ui, "skipping id3 tag normalization: enclosure not an mp3");
+        };
     }
 
     fn file_name(&self) -> &str {
         self.path.file_name().unwrap().to_str().unwrap()
     }
 
-    pub async fn await_handle(&mut self) {
+    pub async fn await_handle(&mut self, ui: &DownloadBar) {
         if let Some(handle) = self.handle.take() {
+            self.inner.log_debug(ui, "awaiting download hook");
             let _ = handle.await;
         }
     }
 
-    fn run_download_hook(&mut self) {
+    fn run_download_hook(&mut self, ui: &DownloadBar) {
         let Some(script_path) = self.inner.config.download_hook.clone() else {
+            self.inner.log_trace(ui, "no download hook configured");
             return;
         };
+
+        self.inner.log_debug(ui, "running download hook");
 
         let path = self.path().to_owned();
 
@@ -380,8 +441,9 @@ impl<'a> DownloadedEpisode<'a> {
         self.handle = Some(handle);
     }
 
-    fn make_symlink(&mut self) -> Result<(), String> {
+    fn make_symlink(&mut self, ui: &DownloadBar) -> Result<(), String> {
         if let Some(symlink_path) = self.inner.config.symlink.as_ref() {
+            self.inner.log_trace(ui, "creating symlink...");
             let new_path = symlink_path.join(self.file_name());
             if self.path() == new_path {
                 return Err(format!("symlink points to itself"));
@@ -400,8 +462,9 @@ impl<'a> DownloadedEpisode<'a> {
     }
 
     async fn process(&mut self, ui: &DownloadBar) -> Result<(), String> {
+        self.inner.log_debug(ui, "processing episode");
         self.rename()?;
-        self.make_symlink()?;
+        self.make_symlink(ui)?;
         self.normalize_id3v2(ui).await;
 
         Ok(())
@@ -432,8 +495,8 @@ impl AsRef<Episode> for DownloadedEpisode<'_> {
     }
 }
 
-impl AsRef<EpisodeAttributes> for Episode {
-    fn as_ref(&self) -> &EpisodeAttributes {
+impl AsRef<Attributes> for Episode {
+    fn as_ref(&self) -> &Attributes {
         &self.attrs
     }
 }

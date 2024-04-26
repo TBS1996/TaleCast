@@ -81,11 +81,6 @@ impl From<Args> for Action {
         let print = args.print;
         let catch_up = args.catch_up;
 
-        let global_config = || match args.config.as_ref() {
-            Some(path) => GlobalConfig::load_from_path(path),
-            None => GlobalConfig::load(),
-        };
-
         if args.list {
             return Self::List { filter };
         }
@@ -102,11 +97,7 @@ impl From<Args> for Action {
 
         if let Some(query) = args.search {
             let query = query.join(" ");
-            return Self::Search {
-                query,
-                catch_up,
-                global_config: global_config(),
-            };
+            return Self::Search { query, catch_up };
         }
 
         if let Some(path) = args.import {
@@ -132,11 +123,7 @@ impl From<Args> for Action {
             return Self::CatchUp { filter };
         }
 
-        Self::Sync {
-            filter,
-            print,
-            global_config: global_config(),
-        }
+        Self::Sync { filter, print }
     }
 }
 
@@ -166,21 +153,17 @@ enum Action {
     Search {
         query: String,
         catch_up: bool,
-        global_config: GlobalConfig,
     },
     Sync {
         filter: Option<Regex>,
-        global_config: GlobalConfig,
         print: bool,
     },
 }
 
 use chrono::Local;
 use fern::Dispatch;
-use log::LevelFilter;
 
-fn setup_logging() -> Result<(), fern::InitError> {
-    // Set up the base configuration
+fn setup_logging(config: &config::LogConfig) -> Result<PathBuf, fern::InitError> {
     let base_config = Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -190,25 +173,28 @@ fn setup_logging() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .level(LevelFilter::Debug); // Set the minimum level of logging
+        .level(config.level());
 
     let log_dir = PathBuf::from("/tmp/talecast");
     utils::create_dir(&log_dir);
     let log_path = log_dir.join(chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string());
 
-    // Set up the file logger
     let file_config = base_config.chain(fern::log_file(&log_path)?);
 
-    // Apply the configuration
     file_config.apply()?;
-    Ok(())
+    Ok(log_path)
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
-    setup_logging().unwrap();
+    let global_config = match args.config.as_ref() {
+        Some(path) => GlobalConfig::load_from_path(path),
+        None => GlobalConfig::load(),
+    };
+
+    let log_path = setup_logging(&global_config.log()).unwrap();
 
     match Action::from(args) {
         Action::Import { path, catch_up } => opml::import(&path, catch_up),
@@ -223,11 +209,9 @@ async fn main() {
             }
         }
 
-        Action::Search {
-            global_config,
-            query,
-            catch_up,
-        } => utils::search_podcasts(&global_config, query, catch_up).await,
+        Action::Search { query, catch_up } => {
+            utils::search_podcasts(&global_config, query, catch_up).await
+        }
 
         Action::Export { path, filter } => opml::export(&path, filter).await,
 
@@ -258,15 +242,11 @@ async fn main() {
             }
         }
 
-        Action::Sync {
-            filter,
-            global_config,
-            print,
-        } => {
+        Action::Sync { filter, print } => {
             let paths = PodcastConfigs::load()
                 .assert_not_empty()
                 .filter(filter)
-                .sync(global_config)
+                .sync(global_config, &log_path)
                 .await;
 
             eprintln!("Syncing complete!");

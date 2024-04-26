@@ -1,3 +1,4 @@
+use crate::display::DownloadBar;
 use crate::utils;
 use std::fs;
 use std::io::{self, Read};
@@ -40,17 +41,36 @@ fn hashed_url(url: &str) -> String {
     format!("{:x}", hash)
 }
 
-fn cached_image(url: &str) -> Option<Vec<u8>> {
+fn cached_image(url: &str, ui: &DownloadBar) -> Option<Vec<u8>> {
     let hash = hashed_url(url);
     let path = utils::cache_dir().join(hash);
-    read_file_to_vec(&path).ok()
+    let image = read_file_to_vec(&path).ok();
+
+    if image.is_some() {
+        ui.log_debug("loaded cached image");
+    } else {
+        ui.log_debug("failed to load cached image");
+    }
+
+    image
 }
 
-async fn write_image(url: &str) -> Option<()> {
+async fn write_image(url: &str, ui: &DownloadBar) -> Option<()> {
     use std::io::Write;
 
     let hashed = hashed_url(url);
-    let response = reqwest::get(url).await.ok()?;
+    let response = match reqwest::get(url).await {
+        Ok(res) => {
+            ui.log_info("connected to image url");
+            res
+        }
+
+        Err(e) => {
+            ui.log_error(&format!("failed to connect to image url: {:?}", e));
+            return None;
+        }
+    };
+
     if response.status().is_success() {
         let mime_type = response
             .headers()
@@ -63,23 +83,32 @@ async fn write_image(url: &str) -> Option<()> {
         let mut file = fs::File::create(&path).ok()?;
         file.write_all(&data).ok()?;
         MimeMap::append(url, &mime_type)?;
-    }
+    } else {
+        ui.log_error("response status to image url connection not successful");
+    };
     Some(())
 }
 
 pub async fn get_image(
     url: &str,
     picture_type: id3::frame::PictureType,
+    ui: &DownloadBar,
 ) -> Option<id3::frame::Frame> {
-    let data = match cached_image(url) {
+    let data = match cached_image(url, ui) {
         Some(data) => data,
         None => {
-            write_image(url).await?;
-            cached_image(url)?
+            write_image(url, ui).await?;
+            cached_image(url, ui)?
         }
     };
 
-    let mime_type = MimeMap::get_mime(url)?;
+    let mime_type = match MimeMap::get_mime(url) {
+        Some(mime) => mime,
+        None => {
+            ui.log_warn(&format!("failed to load mime for: {:?}", url));
+            return None;
+        }
+    };
 
     let pic = id3::frame::Picture {
         data,

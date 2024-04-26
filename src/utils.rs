@@ -346,9 +346,13 @@ pub fn trim_quotes(s: &str) -> String {
     s.to_string()
 }
 
-pub fn date_str_to_unix(date: &str) -> Option<time::Duration> {
-    let secs = dateparser::parse(date).ok()?.timestamp();
-    Some(time::Duration::from_secs(secs as u64))
+pub fn date_str_to_unix(date: &str) -> Result<time::Duration, String> {
+    let secs = match dateparser::parse(date) {
+        Ok(val) => val.timestamp(),
+        Err(e) => return Err(format!("failed to parse date: {}: {:?}", date, e)),
+    };
+
+    Ok(time::Duration::from_secs(secs as u64))
 }
 
 pub fn get_extension_from_response(response: &reqwest::Response, episode: &Episode) -> String {
@@ -472,7 +476,7 @@ pub fn append_to_config(file_path: &Path, key: &str, value: &str) -> io::Result<
         .append(true)
         .open(file_path)?;
 
-    let line = format!("{} {}", key, value);
+    let line = format!("{} {}\n", key, value);
 
     file.write_all(line.as_bytes())?;
 
@@ -485,4 +489,16 @@ pub fn create_dir(path: &Path) {
         eprintln!("error: {:?}", e);
         process::exit(1);
     }
+}
+
+pub fn _log_error<E: std::fmt::Debug>(ui: &DownloadBar, msg: &str, error: E) -> E {
+    let msg = format!("{}: {:?}", msg, error);
+    ui.log_error(&msg);
+    error
+}
+
+pub fn _log_warn<E: std::fmt::Debug>(ui: &DownloadBar, msg: &str, error: E) -> E {
+    let msg = format!("{}: {:?}", msg, error);
+    ui.log_warn(&msg);
+    error
 }

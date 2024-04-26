@@ -1,6 +1,6 @@
 [package]
 name = "talecast"
-version = "0.1.37"
+version = "0.1.38"
 edition = "2021"
 description = "Simple CLI podcatcher"
 license = "MIT"
@@ -33,5 +33,5 @@ dateparser = "0.2.1"
 sanitize-filename = "0.5.0"
 percent-encoding = "2.3.1"
 fnv = "1.0.7"
-log = "0.4"
+log = { version = "0.4", features = ["kv_serde"] }
 fern = "0.6"

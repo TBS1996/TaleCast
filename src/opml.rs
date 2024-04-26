@@ -8,7 +8,9 @@ use std::io::Write as IoWrite;
 use std::path::Path;
 
 pub async fn export(p: &Path, filter: Option<Regex>) {
-    let podcasts = config::PodcastConfigs::load().filter(filter);
+    let podcasts = config::PodcastConfigs::load()
+        .assert_not_empty()
+        .filter(filter);
 
     let opml = OPML::from(podcasts);
     let xml_string = opml.to_string().unwrap();

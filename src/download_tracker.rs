@@ -34,7 +34,7 @@ impl DownloadedEpisodes {
         Self(hashmap)
     }
 
-    pub fn append(path: &Path, id: &str, episode: &DownloadedEpisode) {
+    pub fn append(path: &Path, id: &str, episode: &DownloadedEpisode) -> Result<(), String> {
         use std::io::Write;
 
         if path.is_dir() {
@@ -51,7 +51,7 @@ impl DownloadedEpisodes {
             .append(true)
             .create(true)
             .open(path)
-            .unwrap();
+            .map_err(|_| "failed to open tracker file".to_string())?;
 
         writeln!(
             file,
@@ -61,5 +61,7 @@ impl DownloadedEpisodes {
             episode.inner().attrs.title()
         )
         .unwrap();
+
+        Ok(())
     }
 }

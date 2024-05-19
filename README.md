@@ -119,7 +119,7 @@ Unit Patterns:
 | podname | Configured name of the podcast     |
 | home    | The path to your home directory    |
 
-A good example of these is the default value of the `download_path` setting.
+A good example of these is the default value of the `name_pattern` setting.
 
 Data Patterns:
 

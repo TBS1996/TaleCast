@@ -225,6 +225,7 @@ use crate::config::EvalData;
 pub trait Evaluate {
     fn evaluate(&self, data: EvalData) -> String;
 
+    #[allow(dead_code)]
     fn path_eval(&self, data: EvalData) -> PathBuf {
         let s = self.evaluate(data);
         PathBuf::from(s)

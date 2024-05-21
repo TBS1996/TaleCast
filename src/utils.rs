@@ -2,7 +2,6 @@ use crate::config;
 use crate::episode::Episode;
 use crate::utils;
 use regex::Regex;
-use serde::Serialize;
 use serde_json::Value;
 use std::fs;
 use std::fs::File;
@@ -93,11 +92,6 @@ pub fn truncate_string(s: &str, max_width: usize, append_dots: bool) -> String {
     }
 
     truncated
-}
-
-#[derive(Serialize)]
-struct BasicPodcast {
-    url: String,
 }
 
 pub fn short_handle_response(

@@ -472,10 +472,17 @@ impl<'a> DownloadedEpisode<'a> {
 
     fn rename(&mut self) -> Result<(), String> {
         let new_name = &self.inner.config.name_pattern;
-        let new_name = sanitize_filename::sanitize(new_name);
+        let mut new_name = sanitize_filename::sanitize(new_name);
 
         let new_path = match self.path.extension() {
             Some(extension) => {
+                let max_file_len: usize = 255;
+                let ext_len = extension.len() + 1; // + 1 for the dot.
+                let overflow = (new_name.len() + ext_len).saturating_sub(max_file_len);
+                for _ in 0..overflow {
+                    new_name.pop();
+                }
+
                 let mut new_path = self.path.with_file_name(new_name);
                 new_path.set_extension(extension);
                 new_path

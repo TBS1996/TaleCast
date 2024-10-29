@@ -44,7 +44,7 @@ pub fn cache_dir() -> PathBuf {
     let path = match std::env::var("XDG_CACHE_HOME") {
         Ok(path) => PathBuf::from(path),
         Err(_) => dirs::cache_dir()
-            .expect("unable to locate cache direcotry. Try setting 'XDG_CACHE_HOME' manually"),
+            .expect("unable to locate cache directory. Try setting 'XDG_CACHE_HOME' manually"),
     }
     .join(crate::APPNAME);
 

@@ -482,6 +482,7 @@ pub enum DownloadMode {
     Backlog {
         start: Unix,
         interval: Unix,
+        max_episodes: Option<i64>,
     },
 }
 
@@ -519,16 +520,6 @@ impl DownloadMode {
                 std::process::exit(1);
             }
             (Some(start), Some(interval)) => {
-                if podcast_config.max_days.is_enabled() {
-                    eprintln!("'max_days' not compatible with backlog mode.");
-                    std::process::exit(1);
-                }
-
-                if podcast_config.max_episodes.is_enabled() {
-                    eprintln!("'max_episodes' not compatible with backlog mode.");
-                    eprintln!("If you want to limit the amount of episodes to download, consider changing the 'backlog_start' setting.");
-                    std::process::exit(1);
-                }
 
                 if podcast_config.earliest_date.is_enabled() {
                     eprintln!("'earliest_date' not compatible with backlog mode.");
@@ -543,6 +534,9 @@ impl DownloadMode {
                 DownloadMode::Backlog {
                     start: std::time::Duration::from_secs(start.timestamp() as u64),
                     interval: Unix::from_secs(interval as u64 * 86400),
+                    max_episodes: podcast_config
+                    .max_episodes
+                    .into_val(global_config.max_episodes.as_ref()),
                 }
             }
         }

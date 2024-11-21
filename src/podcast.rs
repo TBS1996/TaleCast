@@ -222,18 +222,26 @@ impl Podcast {
         let mut pending: Vec<&Episode> = self
             .episodes
             .iter()
-            .filter(|episode| episode.should_download(&self.mode, qty))
+            .filter(|episode| episode.within_age_limits(&self.mode, qty))
             .collect();
-
+        
         // In backlog mode it makes more sense to download earliest episode first.
         // in standard mode, the most recent episodes are more relevant.
         match self.mode {
-            DownloadMode::Backlog { .. } => {
+            
+            DownloadMode::Backlog { start: _, interval: _,max_episodes} => {
                 pending.sort_by_key(|ep| ep.index);
+                if max_episodes.is_some() { 
+                    pending.truncate(max_episodes.unwrap() as usize);
+                }
             }
-            DownloadMode::Standard { .. } => {
+
+            DownloadMode::Standard { max_time: _, earliest_date: _, max_episodes } => {
                 pending.sort_by_key(|ep| ep.index);
                 pending.reverse();
+                if max_episodes.is_some() { 
+                    pending.truncate(max_episodes.unwrap() as usize);
+                }
             }
         }
 

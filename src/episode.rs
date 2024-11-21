@@ -201,9 +201,11 @@ impl Episode {
         DownloadedEpisodes::load(&path).contains_episode(&id)
     }
 
-    pub fn should_download(&self, mode: &DownloadMode, episode_qty: usize) -> bool {
+    pub fn within_age_limits(&self, mode: &DownloadMode, episode_qty: usize) -> bool {
         let passed_filter = match mode {
-            DownloadMode::Backlog { start, interval } => {
+            
+            DownloadMode::Backlog { start, interval, max_episodes: _ } => {
+                
                 let time_passed = utils::current_unix() - *start;
                 let intervals_passed = time_passed.as_secs() / interval.as_secs();
                 intervals_passed >= self.index as u64
@@ -211,25 +213,22 @@ impl Episode {
 
             DownloadMode::Standard {
                 max_time,
-                max_episodes,
+                max_episodes: _,
                 earliest_date,
             } => {
                 let max_time_exceeded = max_time.map_or(false, |max_time| {
                     (utils::current_unix() - self.attrs.published) > max_time
                 });
 
-                let max_episodes_exceeded = max_episodes.map_or(false, |max_episodes| {
-                    (episode_qty - max_episodes as usize) > self.index
-                });
-
                 let episode_too_old =
                     earliest_date.map_or(false, |date| date > self.attrs.published);
 
-                !max_time_exceeded && !max_episodes_exceeded && !episode_too_old
+                !max_time_exceeded && !episode_too_old
             }
         };
 
         passed_filter && !self.is_downloaded()
+
     }
 
     /// Filename of episode when it's being downloaded.
